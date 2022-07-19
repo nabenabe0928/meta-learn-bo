@@ -4,7 +4,6 @@ import typing
 import botorch.sampling.qmc
 from ConfigSpace import ConfigurationSpace
 import numpy as np
-import scipy as sp
 from smac.epm.gaussian_process import GaussianProcess
 from smac.epm.gp_base_prior import HorseshoePrior, LognormalPrior
 from smac.epm.gp_kernels import ConstantKernel, Matern, WhiteKernel, HammingKernel

@@ -117,6 +117,30 @@ def compute_target_model_ranking_loss(
     return ranking_losses
 
 
+def weight_dilution(
+    base_models: List[GaussianProcess],
+    ranking_loss: np.ndarray,
+    alpha: float,
+    n_evals: int,
+    max_evals: int,
+    rng: np.random.RandomState,
+) -> List[float]:
+    p_drop: List[float] = []
+    for i in range(len(base_models)):
+        better_than_target = np.sum(ranking_loss[i, :] < ranking_loss[-1, :])
+        worse_than_target = np.sum(ranking_loss[i, :] >= ranking_loss[-1, :])
+        correction_term = alpha * (better_than_target + worse_than_target)
+        proba_keep = better_than_target / (better_than_target + worse_than_target + correction_term)
+        proba_keep = proba_keep * (1 - n_evals / max_evals)
+        proba_drop = 1 - proba_keep
+        p_drop.append(proba_drop)
+
+        if rng.rand() < proba_drop:
+            ranking_loss[i, :] = np.max(ranking_loss) * 2 + 1
+
+    return p_drop
+
+
 def compute_rank_weights(
         train_x: np.ndarray,
         train_y: np.ndarray,
@@ -124,7 +148,6 @@ def compute_rank_weights(
         target_model: GaussianProcess,
         num_samples: int,
         sampling_mode: str,
-        weight_dilution_strategy: Union[int, Callable],
         number_of_function_evaluations,
         rng: np.random.RandomState,
         alpha: float = 0.0,
@@ -220,38 +243,17 @@ def compute_rank_weights(
     else:
         raise NotImplementedError(sampling_mode)
 
-    if isinstance(weight_dilution_strategy, int):
-        weight_dilution_percentile_target = weight_dilution_strategy
-        weight_dilution_percentile_base = 50
-    elif weight_dilution_strategy is None or weight_dilution_strategy in ['probabilistic', 'probabilistic-ld']:
-        pass
-    else:
-        raise ValueError(weight_dilution_strategy)
-
     ranking_loss = np.array(ranking_losses)
 
     # perform model pruning
-    p_drop = []
-    if weight_dilution_strategy in ['probabilistic', 'probabilistic-ld']:
-        for i in range(len(base_models)):
-            better_than_target = np.sum(ranking_loss[i, :] < ranking_loss[-1, :])
-            worse_than_target = np.sum(ranking_loss[i, :] >= ranking_loss[-1, :])
-            correction_term = alpha * (better_than_target + worse_than_target)
-            proba_keep = better_than_target / (better_than_target + worse_than_target + correction_term)
-            if weight_dilution_strategy == 'probabilistic-ld':
-                proba_keep = proba_keep * (1 - len(train_x) / float(number_of_function_evaluations))
-            proba_drop = 1 - proba_keep
-            p_drop.append(proba_drop)
-            r = rng.rand()
-            if r < proba_drop:
-                ranking_loss[i, :] = np.max(ranking_loss) * 2 + 1
-    elif weight_dilution_strategy is not None:
-        # Use the original strategy as described in v1: https://arxiv.org/pdf/1802.02219v1.pdf
-        percentile_base = np.percentile(ranking_loss[: -1, :], weight_dilution_percentile_base, axis=1)
-        percentile_target = np.percentile(ranking_loss[-1, :], weight_dilution_percentile_target)
-        for i in range(len(base_models)):
-            if percentile_base[i] >= percentile_target:
-                ranking_loss[i, :] = np.max(ranking_loss) * 2 + 1
+    p_drop = weight_dilution(
+        base_models=base_models,
+        ranking_loss=ranking_loss,
+        alpha=alpha,
+        n_evals=len(train_x),
+        max_evals=number_of_function_evaluations,
+        rng=rng,
+    )
 
     # compute best model (minimum ranking loss) for each sample
     # this differs from v1, where the weight is given only to the target model in case of a tie.
@@ -277,7 +279,6 @@ class RGPE(AbstractEPM):
         self,
         training_data: Dict[int, Dict[str, Union[List[Configuration], np.ndarray]]],
         num_posterior_samples: int,
-        weight_dilution_strategy: Union[int, str],
         number_of_function_evaluations: int,
         sampling_mode: str = 'correct',
         variance_mode: str = 'average',
@@ -295,13 +296,6 @@ class RGPE(AbstractEPM):
         num_posterior_samples
             Number of samples to draw for approximating the posterior probability of a model
             being the best model to explain the observations on the target task.
-        weight_dilution_strategy
-            Can be one of the following four:
-            * ``'probabilistic-ld'``: the method presented in the paper
-            * ``'probabilistic'``: the method presented in the paper, but without the time-dependent
-              pruning of meta-models
-            * an integer: a deterministic strategy described in https://arxiv.org/abs/1802.02219v1
-            * ``None``: no weight dilution prevention
         number_of_function_evaluations
             Optimization horizon - used to compute the time-dependent factor in the probability
             of dropping base models for the weight dilution prevention strategy
@@ -342,15 +336,6 @@ class RGPE(AbstractEPM):
 
         if self.normalization not in ['None', 'mean/var', 'Copula']:
             raise ValueError(self.normalization)
-
-        if weight_dilution_strategy is None or weight_dilution_strategy == 'None':
-            weight_dilution_strategy = None
-        elif weight_dilution_strategy in ['probabilistic', 'probabilistic-ld']:
-            pass
-        else:
-            weight_dilution_strategy = int(weight_dilution_strategy)
-
-        self.weight_dilution_strategy = weight_dilution_strategy
 
         base_models = []
         for task in training_data:
@@ -412,7 +397,6 @@ class RGPE(AbstractEPM):
                     target_model=target_model,
                     num_samples=self.num_posterior_samples,
                     sampling_mode=self.sampling_mode,
-                    weight_dilution_strategy=self.weight_dilution_strategy,
                     number_of_function_evaluations=self.number_of_function_evaluations,
                     rng=self.rng,
                     alpha=self.alpha,
