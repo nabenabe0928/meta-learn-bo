@@ -141,16 +141,86 @@ def weight_dilution(
     return p_drop
 
 
+def leave_one_out_cross_validation(
+    train_x: np.ndarray,
+    train_y: np.ndarray,
+    target_model: GaussianProcess,
+) -> List[float]:
+    n_samples = len(train_x)
+    masks = np.eye(n_samples, dtype=np.bool)
+    loo_preds: List[float] = []
+    for mask in masks:
+        _x_train, _y_train, _x_test = train_x[~mask], train_y[~mask], train_x[mask]
+        loo_model = get_gaussian_process(
+            configspace=target_model.configspace,
+            bounds=target_model.bounds,
+            types=target_model.types,
+            rng=target_model.rng,
+            kernel=target_model.kernel,
+        )
+        loo_model._train(X=_x_train, y=_y_train, do_optimize=False)
+        # predict returns the array with the shape of (n_samples, n_objectives)
+        pred_val: float = loo_model.predict(_x_test, cov_return_type=None)[0][0]
+        loo_preds.append(pred_val)
+
+    return loo_preds
+
+
+def bootstrap(
+    preds: List[np.ndarray],
+    target_model: GaussianProcess,
+    num_samples: int,
+    train_x: np.ndarray,
+    train_y: np.ndarray,
+    rng: np.random.RandomState,
+) -> np.ndarray:
+
+    n_tasks = len(preds) + 1
+    loo_preds = leave_one_out_cross_validation(
+        train_x=train_x, train_y=train_y, target_model=target_model
+    )
+    preds.append(loo_preds)
+    preds = np.asarray(preds)
+
+    bootstrap_indices = rng.choice(preds.shape[1],
+                                   size=(num_samples, preds.shape[1]),
+                                   replace=True)
+
+    bootstrap_predictions = []
+    bootstrap_targets = train_y[bootstrap_indices].reshape((num_samples, len(train_y)))
+    for m in range(n_tasks):
+        bootstrap_predictions.append(preds[m, bootstrap_indices])
+
+    ranking_losses = np.zeros((n_tasks, num_samples))
+    for i in range(len(n_tasks - 1)):
+
+        for j in range(len(train_y)):
+            ranking_losses[i] += np.sum(
+                (
+                    roll_col(bootstrap_predictions[i], j) < bootstrap_predictions[i])
+                    ^ (roll_col(bootstrap_targets, j) < bootstrap_targets
+                ), axis=1
+            )
+    for j in range(len(train_y)):
+        ranking_losses[-1] += np.sum(
+            (
+                (roll_col(bootstrap_predictions[-1], j) < bootstrap_targets)
+                ^ (roll_col(bootstrap_targets, j) < bootstrap_targets)
+            ), axis=1
+        )
+
+    return ranking_losses
+
+
 def compute_rank_weights(
-        train_x: np.ndarray,
-        train_y: np.ndarray,
-        base_models: List[GaussianProcess],
-        target_model: GaussianProcess,
-        num_samples: int,
-        sampling_mode: str,
-        number_of_function_evaluations,
-        rng: np.random.RandomState,
-        alpha: float = 0.0,
+    train_x: np.ndarray,
+    train_y: np.ndarray,
+    base_models: List[GaussianProcess],
+    target_model: GaussianProcess,
+    num_samples: int,
+    number_of_function_evaluations,
+    rng: np.random.RandomState,
+    alpha: float = 0.0,
 ) -> np.ndarray:
     """
     Compute ranking weights for each base model and the target model
@@ -160,90 +230,8 @@ def compute_rank_weights(
     -------
     weights : np.ndarray
     """
-
-    if sampling_mode == 'bootstrap':
-
-        predictions = []
-        for model_idx in range(len(base_models)):
-            model = base_models[model_idx]
-            predictions.append(model.predict(train_x)[0].flatten())
-
-        masks = np.eye(len(train_x), dtype=np.bool)
-        train_x_cv = np.stack([train_x[~m] for m in masks])
-        train_y_cv = np.stack([train_y[~m] for m in masks])
-        test_x_cv = np.stack([train_x[m] for m in masks])
-
-        loo_prediction = []
-        for i in range(train_y.shape[0]):
-            loo_model = get_gaussian_process(
-                configspace=target_model.configspace,
-                bounds=target_model.bounds,
-                types=target_model.types,
-                rng=target_model.rng,
-                kernel=target_model.kernel,
-            )
-            loo_model._train(X=train_x_cv[i], y=train_y_cv[i], do_optimize=False)
-            loo_prediction.append(loo_model.predict(test_x_cv[i])[0][0][0])
-        predictions.append(loo_prediction)
-        predictions = np.array(predictions)
-
-        bootstrap_indices = rng.choice(predictions.shape[1],
-                                       size=(num_samples, predictions.shape[1]),
-                                       replace=True)
-
-        bootstrap_predictions = []
-        bootstrap_targets = train_y[bootstrap_indices].reshape((num_samples, len(train_y)))
-        for m in range(len(base_models) + 1):
-            bootstrap_predictions.append(predictions[m, bootstrap_indices])
-
-        ranking_losses = np.zeros((len(base_models) + 1, num_samples))
-        for i in range(len(base_models)):
-
-            for j in range(len(train_y)):
-                ranking_losses[i] += np.sum(
-                    (
-                        roll_col(bootstrap_predictions[i], j) < bootstrap_predictions[i])
-                        ^ (roll_col(bootstrap_targets, j) < bootstrap_targets
-                    ), axis=1
-                )
-        for j in range(len(train_y)):
-            ranking_losses[-1] += np.sum(
-                (
-                    (roll_col(bootstrap_predictions[-1], j) < bootstrap_targets)
-                    ^ (roll_col(bootstrap_targets, j) < bootstrap_targets)
-                ), axis=1
-            )
-
-    elif sampling_mode in ['simplified', 'correct']:
-        # Use the original strategy as described in v1: https://arxiv.org/pdf/1802.02219v1.pdf
-        ranking_losses = []
-        # compute ranking loss for each base model
-        for model_idx in range(len(base_models)):
-            model = base_models[model_idx]
-            # compute posterior over training points for target task
-            f_samps = sample_sobol(model, train_x, num_samples, rng.randint(10000))
-            # compute and save ranking loss
-            ranking_losses.append(compute_ranking_loss(f_samps, train_y, target_model=False))
-
-        # compute ranking loss for target model using LOOCV
-        if sampling_mode == 'simplified':
-            # Independent draw of the leave one out sample, other "samples" are noise-free and the
-            # actual observation
-            f_samps = get_target_model_loocv_sample_preds(train_x, train_y, num_samples, target_model,
-                                                          rng.randint(10000))
-            ranking_losses.append(compute_ranking_loss(f_samps, train_y, target_model=True))
-        elif sampling_mode == 'correct':
-            # Joint draw of the leave one out sample and the other observations
-            ranking_losses.append(
-                compute_target_model_ranking_loss(train_x, train_y, num_samples, target_model,
-                                                  rng.randint(10000))
-            )
-        else:
-            raise ValueError(sampling_mode)
-    else:
-        raise NotImplementedError(sampling_mode)
-
-    ranking_loss = np.array(ranking_losses)
+    preds = [model.predict(train_x)[0].flatten() for model in base_models]
+    ranking_loss = bootstrap(preds)
 
     # perform model pruning
     p_drop = weight_dilution(
@@ -282,7 +270,6 @@ class RGPE(AbstractEPM):
         number_of_function_evaluations: int,
         sampling_mode: str = 'correct',
         variance_mode: str = 'average',
-        normalization: str = 'mean/var',
         alpha: float = 0.0,
         **kwargs
     ):
@@ -300,22 +287,11 @@ class RGPE(AbstractEPM):
             Optimization horizon - used to compute the time-dependent factor in the probability
             of dropping base models for the weight dilution prevention strategy
             ``'probabilistic-ld'``.
-        sampling_mode
-            Can be any of:
-            * ``'bootstrap'``
-            * ``'correct'``
-            * ``'simplified'``
         variance_mode
             Can be either ``'average'`` to return the weighted average of the variance
             predictions of the individual models or ``'target'`` to only obtain the variance
             prediction of the target model. Changing this is only necessary to use the model
             together with the expected improvement.
-        normalization
-            Can be either:
-            * ``None``: No normalization per task
-            * ``'mean/var'``: Zero mean unit standard deviation normalization per task as
-              proposed by Yogatama et al. (AISTATS 2014).
-            * ``'Copula'``: Copula transform as proposed by Salinas et al., 2020
         alpha
             Regularization hyperparameter to increase aggressiveness of dropping base models when
             using the weight dilution strategies ``'probabilistic-ld'`` or ``'probabilistic'``.
@@ -329,13 +305,8 @@ class RGPE(AbstractEPM):
         self.number_of_function_evaluations = number_of_function_evaluations
         self.num_posterior_samples = num_posterior_samples
         self.rng = np.random.RandomState(self.seed)
-        self.sampling_mode = sampling_mode
         self.variance_mode = variance_mode
-        self.normalization = normalization
         self.alpha = alpha
-
-        if self.normalization not in ['None', 'mean/var', 'Copula']:
-            raise ValueError(self.normalization)
 
         base_models = []
         for task in training_data:
@@ -396,7 +367,6 @@ class RGPE(AbstractEPM):
                     base_models=self.base_models,
                     target_model=target_model,
                     num_samples=self.num_posterior_samples,
-                    sampling_mode=self.sampling_mode,
                     number_of_function_evaluations=self.number_of_function_evaluations,
                     rng=self.rng,
                     alpha=self.alpha,
