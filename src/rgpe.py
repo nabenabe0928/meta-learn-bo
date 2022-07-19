@@ -1,12 +1,11 @@
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple
 
 import numpy as np
 
-from ConfigSpace import Configuration
-from smac.configspace import convert_configurations_to_array
 from smac.epm.base_epm import BaseEPM
 from smac.epm.gaussian_process import GaussianProcess
-from rgpe.utils import get_gaussian_process
+
+from src.utils import get_gaussian_process
 
 
 def roll_col(X: np.ndarray, shift: int) -> np.ndarray:
@@ -157,56 +156,51 @@ def compute_rank_weights(
 
 
 class RGPE(BaseEPM):
-
     def __init__(
         self,
-        training_data: Dict[int, Dict[str, Union[List[Configuration], np.ndarray]]],
+        metadata: Dict[str, Dict[str, np.ndarray]],
         n_samples: int,
         max_evals: int,
+        metric_name: str,
         **kwargs
     ):
         """Ranking-Weighted Gaussian Process Ensemble.
 
         Parameters
         ----------
-        training_data
-            Dictionary containing the training data for each meta-task. Mapping from an integer (
-            task ID) to a dictionary, which is a mapping from configuration to performance.
+        metadata (Dict[str, Dict[str, np.ndarray]]):
+            Dict[task name, Dict[hp_name/metric_name, the array of the corresponding var]]
         n_samples (int):
             The number of samples to draw for the approximation of the posterior of a model.
         max_evals (int):
             How many function call we do during the whole optimization.
+        metric_name (str):
+            The name of the objective func.
         """
-
-        if kwargs.get('instance_features') is not None:
-            raise NotImplementedError()
         super().__init__(**kwargs)
-        self.training_data = training_data
 
-        self.max_evals = max_evals
-        self.n_samples = n_samples
-        self.rng = np.random.RandomState(self.seed)
+        self._max_evals = max_evals
+        self._n_samples = n_samples
+        self._rng = np.random.RandomState(self.seed)
+        self._metric_name = metric_name
+        self._gp_kwargs = dict(
+            bounds=self.bounds, types=self.types, configspace=self.configspace, kernel=None, rng=self._rng
+        )
 
-        base_models = []
-        for task in training_data:
-            model = get_gaussian_process(
-                bounds=self.bounds,
-                types=self.types,
-                configspace=self.configspace,
-                rng=self.rng,
-                kernel=None,
-            )
-            y_scaled = self._standardize(training_data[task]['y'])
+        self._base_models: List[GaussianProcess]
+        self._train_models_on_metatask(metadata)
 
-            configs = training_data[task]['configurations']
-            X = convert_configurations_to_array(configs)
+    def _train_on_data(self, data: Dict[str, np.ndarray]) -> GaussianProcess:
+        # x_train must be the shape of (n_samples, n_feats)
+        X = np.asarray([vals for key, vals in data.items() if key != self._metric_name]).T
+        y_scaled = self._standardize(data[self._metric_name])
+        model = get_gaussian_process(**self._gp_kwargs)
+        model.train(X=X, Y=y_scaled)
+        return model
 
-            model.train(
-                X=X,
-                Y=y_scaled,
-            )
-            base_models.append(model)
-        self.base_models = base_models
+    def _train_models_on_metatask(self, metadata: Dict[str, Dict[str, np.ndarray]]) -> None:
+        base_models: List[GaussianProcess] = [self._train_on_data(data) for data in metadata.values()]
+        self._base_models = base_models
 
     def _standardize(self, y: np.ndarray) -> np.ndarray:
         mean = y.mean()
@@ -220,31 +214,23 @@ class RGPE(BaseEPM):
         return y_scaled.flatten()
 
     def _train(self, X: np.ndarray, Y: np.ndarray) -> BaseEPM:
-        """SMAC training function"""
         y_scaled = self._standardize(Y)
+        target_model = get_gaussian_process(**self._gp_kwargs)
+        target_model.train(X, y_scaled)
+        self.model_list_ = self._base_models + [target_model]
 
-        target_model = get_gaussian_process(
-            bounds=self.bounds,
-            types=self.types,
-            configspace=self.configspace,
-            rng=self.rng,
-            kernel=None,
-        )
-        self.target_model = target_model.train(X, y_scaled)
-        self.model_list_ = self.base_models + [target_model]
-
-        if X.shape[0] < 3:
+        if X.shape[0] < 3:  # Not sufficient data points
             self.weights_ = np.ones(len(self.model_list_)) / len(self.model_list_)
-            p_drop = np.ones((len(self.base_models, ))) * np.NaN
+            p_drop = np.ones((len(self._base_models, ))) * np.NaN
         else:
             self.weights_, p_drop = compute_rank_weights(
                 x_train=X,
                 y_train=y_scaled,
-                base_models=self.base_models,
+                base_models=self._base_models,
                 target_model=target_model,
-                n_samples=self.n_samples,
-                max_evals=self.max_evals,
-                rng=self.rng,
+                n_samples=self._n_samples,
+                max_evals=self._max_evals,
+                rng=self._rng,
             )
 
         return self
