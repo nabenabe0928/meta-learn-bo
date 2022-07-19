@@ -271,10 +271,6 @@ class RGPE(BaseEPM):
             weighted_means.append(weight * mean)
             weighted_covars.append(covar * weight ** 2)
 
-        if len(weighted_covars) == 0:
-            _, covar = self.model_list_[-1]._predict(X, cov_return_type=cov_return_type)
-            weighted_covars.append(covar)
-
         mean_x = np.sum(np.stack(weighted_means), axis=0) * self.Y_std_ + self.Y_mean_
         covar_x = np.sum(weighted_covars, axis=0) * (self.Y_std_ ** 2)
         return mean_x, covar_x
