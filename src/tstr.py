@@ -13,8 +13,6 @@ class TSTR(BaseEPM):
         self,
         training_data: Dict[int, Dict[str, Union[List[Configuration], np.ndarray]]],
         bandwidth: float = 0.1,
-        variance_mode: str = 'target',
-        weight_dilution_strategy: Union[int, str] = 'None',
         number_of_function_evaluations: float = 50,
         **kwargs
     ):
@@ -31,18 +29,6 @@ class TSTR(BaseEPM):
             task ID) to a dictionary, which is a mapping from configuration to performance.
         bandwidth
             rho in the original paper
-        variance_mode
-            Can be either ``'average'`` to return the weighted average of the variance
-            predictions of the individual models or ``'target'`` to only obtain the variance
-            prediction of the target model. Changing this is only necessary to use the model
-            together with the expected improvement.
-        weight_dilution_strategy
-            Can be one of the following four:
-            * ``'probabilistic-ld'``: the method presented in the paper
-            * ``'probabilistic'``: the method presented in the paper, but without the time-dependent
-              pruning of meta-models
-            * an integer: a deterministic strategy described in https://arxiv.org/abs/1802.02219v1
-            * ``None``: no weight dilution prevention
         number_of_function_evaluations
             Optimization horizon - used to compute the time-dependent factor in the probability
             of dropping base models for the weight dilution prevention strategy
@@ -56,8 +42,6 @@ class TSTR(BaseEPM):
 
         self.bandwidth = bandwidth
         self.rng = np.random.RandomState(self.seed)
-        self.variance_mode = variance_mode
-        self.weight_dilution_strategy = weight_dilution_strategy
         self.number_of_function_evaluations = number_of_function_evaluations
 
         base_models = []
@@ -79,7 +63,6 @@ class TSTR(BaseEPM):
             )
             base_models.append(model)
         self.base_models = base_models
-        self.weights_over_time = []
 
     def _standardize(self, y: np.ndarray) -> np.ndarray:
         mean = y.mean()
@@ -130,29 +113,10 @@ class TSTR(BaseEPM):
 
         # perform model pruning
         # use this only for ablation
-        if X.shape[0] >= 2:
-            p_drop = []
-            if self.weight_dilution_strategy in ['probabilistic', 'probabilistic-ld']:
-                for i in range(len(self.base_models)):
-                    concordant_pairs = total_pairs - discordant_pairs_per_task[i]
-                    proba_keep = concordant_pairs / total_pairs
-                    if self.weight_dilution_strategy == 'probabilistic-ld':
-                        proba_keep = proba_keep * (1 - len(X) / float(self.number_of_function_evaluations))
-                    proba_drop = 1 - proba_keep
-                    p_drop.append(proba_drop)
-                    r = self.rng.rand()
-                    if r < proba_drop:
-                        weights[i] = 0
-            elif self.weight_dilution_strategy == 'None':
-                pass
-            else:
-                raise ValueError(self.weight_dilution_strategy)
-
         weights /= np.sum(weights)
         print(weights)
         self.weights_ = weights
 
-        self.weights_over_time.append(weights)
         # create model and acquisition function
         return self
 
@@ -178,20 +142,7 @@ class TSTR(BaseEPM):
             mean, covar = self.model_list_[raw_idx]._predict(X)
 
             weighted_means.append(weight * mean)
-
-            if self.variance_mode == 'average':
-                weighted_covars.append(covar * weight ** 2)
-            elif self.variance_mode == 'target':
-                if raw_idx + 1 == len(self.weights_):
-                    weighted_covars.append(covar)
-            else:
-                raise ValueError()
-
-        if len(weighted_covars) == 0:
-            if self.variance_mode != 'target':
-                raise ValueError(self.variance_mode)
-            _, covar = self.model_list_[-1]._predict(X, cov_return_type)
-            weighted_covars.append(covar)
+            weighted_covars.append(covar * weight ** 2)
 
         # set mean and covariance to be the rank-weighted sum the means and covariances
         # of the base models and target model
