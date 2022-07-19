@@ -3,18 +3,17 @@ from typing import Dict, List, Tuple, Union
 from ConfigSpace import Configuration
 import numpy as np
 from smac.configspace import convert_configurations_to_array
-from smac.epm.base_epm import AbstractEPM
+from smac.epm.base_epm import BaseEPM
 from rgpe.utils import get_gaussian_process
 
 
-class TSTR(AbstractEPM):
+class TSTR(BaseEPM):
 
     def __init__(
         self,
         training_data: Dict[int, Dict[str, Union[List[Configuration], np.ndarray]]],
         bandwidth: float = 0.1,
         variance_mode: str = 'target',
-        normalization: str = 'mean/var',
         weight_dilution_strategy: Union[int, str] = 'None',
         number_of_function_evaluations: float = 50,
         **kwargs
@@ -37,12 +36,6 @@ class TSTR(AbstractEPM):
             predictions of the individual models or ``'target'`` to only obtain the variance
             prediction of the target model. Changing this is only necessary to use the model
             together with the expected improvement.
-        normalization
-            Can be either:
-            * ``None``: No normalization per task
-            * ``'mean/var'``: Zero mean unit standard deviation normalization per task as
-              proposed by Yogatama et al. (AISTATS 2014).
-            * ``'Copula'``: Copula transform as proposed by Salinas et al., 2020
         weight_dilution_strategy
             Can be one of the following four:
             * ``'probabilistic-ld'``: the method presented in the paper
@@ -64,12 +57,8 @@ class TSTR(AbstractEPM):
         self.bandwidth = bandwidth
         self.rng = np.random.RandomState(self.seed)
         self.variance_mode = variance_mode
-        self.normalization = normalization
         self.weight_dilution_strategy = weight_dilution_strategy
         self.number_of_function_evaluations = number_of_function_evaluations
-
-        if self.normalization not in ['None', 'mean/var', 'Copula']:
-            raise ValueError(self.normalization)
 
         base_models = []
         for task in training_data:
@@ -80,22 +69,7 @@ class TSTR(AbstractEPM):
                 rng=self.rng,
                 kernel=None,
             )
-            Y = training_data[task]['y']
-
-            if self.normalization == 'mean/var':
-                mean = Y.mean()
-                std = Y.std()
-                if std == 0:
-                    std = 1
-
-                y_scaled = (Y - mean) / std
-                y_scaled = y_scaled.flatten()
-            elif self.normalization == 'Copula':
-                y_scaled = copula_transform(Y)
-            elif self.normalization == 'None':
-                y_scaled = Y
-            else:
-                raise ValueError(self.normalization)
+            y_scaled = self._standardize(training_data[task]['y'])
             configs = training_data[task]['configurations']
             X = convert_configurations_to_array(configs)
 
@@ -107,26 +81,19 @@ class TSTR(AbstractEPM):
         self.base_models = base_models
         self.weights_over_time = []
 
-    def _train(self, X: np.ndarray, Y: np.ndarray) -> AbstractEPM:
-        if self.normalization == 'mean/var':
-            Y = Y.flatten()
-            mean = Y.mean()
-            std = Y.std()
-            if std == 0:
-                std = 1
+    def _standardize(self, y: np.ndarray) -> np.ndarray:
+        mean = y.mean()
+        std = y.std()
+        if std == 0:
+            std = 1
 
-            y_scaled = (Y - mean) / std
-            self.Y_std_ = std
-            self.Y_mean_ = mean
-        elif self.normalization in ['None', 'Copula']:
-            self.Y_mean_ = 0.
-            self.Y_std_ = 1.
-            y_scaled = Y
-            if self.normalization == 'Copula':
-                y_scaled = copula_transform(Y)
-        else:
-            raise ValueError(self.normalization)
+        self.Y_mean_ = mean
+        self.Y_std_ = std
+        y_scaled = (y - self.Y_mean_) / self.Y_std_
+        return y_scaled.flatten()
 
+    def _train(self, X: np.ndarray, Y: np.ndarray) -> BaseEPM:
+        y_scaled = self._standardize(Y)
         target_model = get_gaussian_process(
             bounds=self.bounds,
             types=self.types,
@@ -156,7 +123,7 @@ class TSTR(AbstractEPM):
                         total_pairs += 1
                 t = discordant_pairs / total_pairs / self.bandwidth
                 discordant_pairs_per_task[model_idx] = discordant_pairs
-                if t < 1:  # The paper says <=, but the code says < (https://github.com/wistuba/TST/blob/master/src/de/ismll/hylap/surrogateModel/TwoStageSurrogate.java)
+                if t < 1:
                     weights[model_idx] = 0.75 * (1 - t ** 2)
                 else:
                     weights[model_idx] = 0
@@ -232,7 +199,7 @@ class TSTR(AbstractEPM):
         covar_x = np.sum(weighted_covars, axis=0) * (self.Y_std_ ** 2)
         return mean_x, covar_x
 
-    def sample_functions(self, X_test: np.ndarray, n_funcs: int=1) -> np.ndarray:
+    def sample_functions(self, X_test: np.ndarray, n_funcs: int = 1) -> np.ndarray:
         """
         Samples F function values from the current posterior at the N
         specified test points.
