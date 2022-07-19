@@ -1,5 +1,4 @@
-import json
-from typing import Dict, List, Optional, Tuple, Union, Callable
+from typing import Dict, List, Tuple, Union, Callable
 
 import numpy as np
 
@@ -7,7 +6,7 @@ from ConfigSpace import Configuration
 from smac.configspace import convert_configurations_to_array
 from smac.epm.base_epm import AbstractEPM
 from smac.epm.gaussian_process import GaussianProcess
-from rgpe.utils import get_gaussian_process, sample_sobol, copula_transform
+from rgpe.utils import get_gaussian_process, sample_sobol
 
 
 def roll_col(X: np.ndarray, shift: int) -> np.ndarray:
@@ -362,21 +361,8 @@ class RGPE(AbstractEPM):
                 rng=self.rng,
                 kernel=None,
             )
-            y = training_data[task]['y']
-            if self.normalization == 'mean/var':
-                mean = y.mean()
-                std = y.std()
-                if std == 0:
-                    std = 1
+            y_scaled = self._standardize(training_data[task]['y'])
 
-                y_scaled = (y - mean) / std
-                y_scaled = y_scaled.flatten()
-            elif self.normalization == 'Copula':
-                y_scaled = copula_transform(y)
-            elif self.normalization == 'None':
-                y_scaled = y
-            else:
-                raise ValueError(self.normalization)
             configs = training_data[task]['configurations']
             X = convert_configurations_to_array(configs)
 
@@ -389,27 +375,20 @@ class RGPE(AbstractEPM):
         self.weights_over_time = []
         self.p_drop_over_time = []
 
+    def _standardize(self, y: np.ndarray) -> np.ndarray:
+        mean = y.mean()
+        std = y.std()
+        if std == 0:
+            std = 1
+
+        self.Y_mean_ = mean
+        self.Y_std_ = std
+        y_scaled = (y - self.Y_mean_) / self.Y_std_
+        return y_scaled.flatten()
+
     def _train(self, X: np.ndarray, Y: np.ndarray) -> AbstractEPM:
         """SMAC training function"""
-        print(self.normalization)
-        if self.normalization == 'mean/var':
-            Y = Y.flatten()
-            mean = Y.mean()
-            std = Y.std()
-            if std == 0:
-                std = 1
-
-            y_scaled = (Y - mean) / std
-            self.Y_std_ = std
-            self.Y_mean_ = mean
-        elif self.normalization in ['None', 'Copula']:
-            self.Y_mean_ = 0.
-            self.Y_std_ = 1.
-            y_scaled = Y
-            if self.normalization == 'Copula':
-                y_scaled = copula_transform(Y)
-        else:
-            raise ValueError(self.normalization)
+        y_scaled = self._standardize(Y)
 
         target_model = get_gaussian_process(
             bounds=self.bounds,

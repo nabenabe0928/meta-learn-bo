@@ -1,11 +1,10 @@
-import json
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 from ConfigSpace import Configuration
 import numpy as np
 from smac.configspace import convert_configurations_to_array
 from smac.epm.base_epm import AbstractEPM
-from rgpe.utils import get_gaussian_process, copula_transform
+from rgpe.utils import get_gaussian_process
 
 
 class TSTR(AbstractEPM):
