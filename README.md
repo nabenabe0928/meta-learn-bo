@@ -1,25 +1,16 @@
-# A repository template
+# Transfer learning for Bayesian optimization
+[![Build Status](https://github.com/nabenabe0928/meta-learn-bo/workflows/Functionality%20test/badge.svg?branch=main)](https://github.com/nabenabe0928/meta-learn-bo)
+[![codecov](https://codecov.io/gh/nabenabe0928/meta-learn-bo/branch/main/graph/badge.svg?token=T6MX4JQHOV)](https://codecov.io/gh/nabenabe0928/meta-learn-bo)
 
-[![Build Status](https://github.com/nabenabe0928/repo-template/workflows/Functionality%20test/badge.svg?branch=main)](https://github.com/nabenabe0928/repo-template)
-[![codecov](https://codecov.io/gh/nabenabe0928/repo-template/branch/main/graph/badge.svg?token=FQWPWEJSWE)](https://codecov.io/gh/nabenabe0928/repo-template)
+The codes are written based on [this repository](https://github.com/automl/transfer-hpo-framework).
 
-Before copying the repository, please make sure to change the following parts:
-1. The name of the `repo_name` directory
-2. `include` in `.coveragerc`
-3. The URLs to `Build Status` and `codecov` (we need to copy from the `codecov` website) in `README.md`
-4. Setting up the `codecov` of the repository
-5. The token of `codecov.yml`
-6. `Copyright` in `LICENSE`
-7. `name`, `author`, `author email`, and `url` in `setup.py`
-8. The targets of `.pre-commit-config.yaml` (Lines 8, 14)
-9. `--cov=<target>` in Line 46 of `python-app.yml` (if there are multiple targets, use `--cov=<target 1> --cov=<target 2> ...`)
-10. `target` in `check_github_actions_locally.sh`
+In this codebase, we are trying to reproduce the results of TST-R and RGPE using the TAF acquisition function in [`Practical transfer learning for Bayesian optimization`](https://arxiv.org/pdf/1802.02219v3.pdf).
 
-## Local check
+You can find the information for RGPE in the paper and find the information that for TST-R in the paper [`Two-stage transfer surrogate model for automatic hyperparameter optimization`](https://www.ismll.uni-hildesheim.de/pub/pdfs/wistuba_et_al_ECML_2016.pdf).
 
-In order to check if the codebase passes Github actions, run the following:
+## Initial setup
 
 ```shell
-$ pip install black pytest unittest flake8 pre-commit pytest-cov
-$ ./check_github_actions_locally.sh
+$ conda install swig
+$ pip install -r requirements.txt
 ```

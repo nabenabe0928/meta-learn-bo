@@ -1,6 +1,6 @@
 import unittest
 
-from repo_name.example import hello
+from src.example import hello
 
 
 def test_hello():
