@@ -28,15 +28,15 @@ def sphere(config: CS.Configuration, shift: int = 0) -> float:
     return np.sum((X - shift) ** 2)
 
 
-def main(
-    max_evals: int, config_space: CS.ConfigurationSpace, seed: int
-):
-    scenario = Scenario(dict(
-        run_obj="quality",
-        runcount_limit=max_evals,
-        cs=config_space,
-        output_dir=None,
-    ))
+def main(max_evals: int, config_space: CS.ConfigurationSpace, seed: int):
+    scenario = Scenario(
+        dict(
+            run_obj="quality",
+            runcount_limit=max_evals,
+            cs=config_space,
+            output_dir=None,
+        )
+    )
     model_kwargs = dict(
         metadata={},
         n_samples=1000,

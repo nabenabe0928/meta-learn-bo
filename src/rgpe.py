@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -12,14 +12,17 @@ EPS = 1e-8
 
 
 def drop_ranking_loss(
-    ranking_loss: np.ndarray, n_evals: int, max_evals: int, rng: np.random.RandomState,
+    ranking_loss: np.ndarray,
+    n_evals: int,
+    max_evals: int,
+    rng: np.random.RandomState,
 ) -> np.ndarray:
     # ranking_loss.shape --> (n_tasks, n_samples)
     (n_tasks, n_samples) = ranking_loss.shape
     better_than_target = np.sum(ranking_loss[:-1] < ranking_loss[-1], axis=-1)
     worse_than_target = n_samples - better_than_target
     p_keep = better_than_target / (better_than_target + worse_than_target)
-    p_keep *= (1 - n_evals / max_evals)
+    p_keep *= 1 - n_evals / max_evals
     # if rand > p_keep --> drop
     ranking_loss[rng.random(n_tasks) > p_keep] = np.max(ranking_loss) * 2 + 1
     return ranking_loss
@@ -48,7 +51,7 @@ def compute_rank_weights(ranking_loss: np.ndarray) -> np.ndarray:
     best_task_masks = (ranking_loss == sample_wise_min).T  # shape = (n_samples, n_tasks)
     counts_of_best_in_sample = np.sum(best_task_masks, axis=-1)
     for best_task_mask, count in zip(best_task_masks, counts_of_best_in_sample):
-        best_counts[best_task_mask] += 1. / count
+        best_counts[best_task_mask] += 1.0 / count
 
     return best_counts / n_samples
 
@@ -60,7 +63,7 @@ class RGPE(BaseEPM):
         n_samples: int,
         max_evals: int,
         metric_name: str,
-        **kwargs
+        **kwargs: Dict[str, Any],
     ):
         """Ranking-Weighted Gaussian Process Ensemble.
 
@@ -109,11 +112,10 @@ class RGPE(BaseEPM):
         y_scaled = (Y - self._y_mean) / self._y_std
         return y_scaled.flatten()
 
-    def _bootstrap(self, preds: List[np.ndarray], X: np.ndarray, Y: np.ndarray) -> np.ndarray:
+    def _bootstrap(self, preds: np.ndarray, X: np.ndarray, Y: np.ndarray) -> np.ndarray:
         n_tasks = len(preds) + 1
-        loo_preds = leave_one_out_cross_validation(X=X, Y=Y, target_model=self.target_model)
-        preds.append(loo_preds)
-        preds = np.asarray(preds)
+        preds = np.append(preds, leave_one_out_cross_validation(X=X, Y=Y, target_model=self.target_model))
+        preds = preds if len(preds.shape) == 2 else preds[np.newaxis, :]
         (_, n_points) = preds.shape  # (n_tasks, n_points:=len(X))
         bs_indices = self._rng.choice(n_points, size=(self._n_samples, n_points), replace=True)
 
@@ -121,16 +123,16 @@ class RGPE(BaseEPM):
         bs_targets = Y[bs_indices].reshape((self._n_samples, len(Y)))
 
         ranking_loss = np.zeros((n_tasks, self._n_samples))
-        ranking_loss[:-1] += np.sum((
-            bs_preds[:-1, :, :, np.newaxis] < bs_preds[:-1, :, np.newaxis, :]
-        ) ^ (
-            bs_targets[:, :, np.newaxis] < bs_targets[:, np.newaxis, :]
-        ), axis=(2, 3))
-        ranking_loss[-1] += np.sum((
-            bs_preds[-1, :, :, np.newaxis] < bs_targets[:, np.newaxis, :]
-        ) ^ (
-            bs_targets[:, :, np.newaxis] < bs_targets[:, np.newaxis, :]
-        ), axis=(1, 2))
+        ranking_loss[:-1] += np.sum(
+            (bs_preds[:-1, :, :, np.newaxis] < bs_preds[:-1, :, np.newaxis, :])
+            ^ (bs_targets[:, :, np.newaxis] < bs_targets[:, np.newaxis, :]),
+            axis=(2, 3),
+        )
+        ranking_loss[-1] += np.sum(
+            (bs_preds[-1, :, :, np.newaxis] < bs_targets[:, np.newaxis, :])
+            ^ (bs_targets[:, :, np.newaxis] < bs_targets[:, np.newaxis, :]),
+            axis=(1, 2),
+        )
         return ranking_loss
 
     def _compute_rank_weights(self, X: np.ndarray, Y: np.ndarray) -> np.ndarray:
@@ -138,9 +140,12 @@ class RGPE(BaseEPM):
             return np.ones(self._n_tasks) / self._n_tasks
 
         preds = [model.predict(X)[0].flatten() for model in self.base_models]
-        ranking_loss = self._bootstrap(preds=preds, X=X, Y=Y)
+        ranking_loss = self._bootstrap(preds=np.asarray(preds), X=X, Y=Y)
         ranking_loss = drop_ranking_loss(
-            ranking_loss=ranking_loss, n_evals=len(X), max_evals=self._max_evals, rng=self._rng,
+            ranking_loss=ranking_loss,
+            n_evals=len(X),
+            max_evals=self._max_evals,
+            rng=self._rng,
         )
         return compute_rank_weights(ranking_loss=ranking_loss)
 
@@ -149,30 +154,29 @@ class RGPE(BaseEPM):
         self.target_model = get_gaussian_process(**self._gp_kwargs)
         self.target_model.train(X, y_scaled)
         self.weights = self._compute_rank_weights(X=X, Y=y_scaled)
-        print(self.weights)
         return self
 
-    def _predict(self, X: np.ndarray, cov_return_type='diagonal_cov') -> Tuple[np.ndarray, np.ndarray]:
+    def _predict(self, X: np.ndarray, cov_return_type: str = "diagonal_cov") -> Tuple[np.ndarray, np.ndarray]:
         self.weights /= self.weights.sum()
         weighted_means, weighted_covs = [], []
 
         for idx, (w, model) in enumerate(zip(self.weights, self.base_models + [self.target_model])):
-            if w ** 2 <= EPS:
+            if w**2 <= EPS:
                 continue
 
             mean, cov = model._predict(X, cov_return_type)
             weighted_means.append(w * mean)
-            weighted_covs.append(cov * w ** 2)
+            weighted_covs.append(cov * w**2)
 
         mean = np.sum(np.stack(weighted_means), axis=0) * self._y_std + self._y_mean
-        cov = np.sum(weighted_covs, axis=0) * (self._y_std ** 2)
+        cov = np.sum(weighted_covs, axis=0) * (self._y_std**2)
         return mean, cov
 
     def sample_functions(self, X_test: np.ndarray, n_funcs: int = 1) -> np.ndarray:
         self.weights /= self.weights.sum()
         samples = []
         for idx, (w, model) in enumerate(zip(self.weights, self.base_models + [self.target_model])):
-            if w ** 2 <= EPS:
+            if w**2 <= EPS:
                 continue
 
             preds = model.sample_functions(X_test, n_funcs)  # preds.shape -> (n_samples, 1)

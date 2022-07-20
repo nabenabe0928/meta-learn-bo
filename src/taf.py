@@ -1,3 +1,5 @@
+from typing import Any, Dict
+
 import numpy as np
 
 from smac.epm.base_epm import BaseEPM
@@ -13,14 +15,14 @@ class TAF(AbstractAcquisitionFunction):
         Works both with TST-R and RGPE weighting.
         """
         super().__init__(model)
-        self.long_name = 'Transfer Acquisition Function'
+        self.long_name = "Transfer Acquisition Function"
         self.eta = None
-        self.acq = EI(model=None)
+        self.acq: EI = EI(model=None)
 
-    def update(self, **kwargs) -> None:
-        X = kwargs['X']
+    def update(self, **kwargs: Dict[str, Any]) -> None:
+        X = kwargs["X"]
         preds = self.model.target_model.predict(X)[0]
-        assert (id(kwargs['model']) == id(self.model))
+        assert id(kwargs["model"]) == id(self.model)
         self.acq.model = None
         self.acq.update(model=self.model.target_model, eta=np.min(preds))
         best_vals = [
@@ -29,7 +31,7 @@ class TAF(AbstractAcquisitionFunction):
         ]
         self._best_vals = best_vals
 
-    def _compute(self, X: np.ndarray, **kwargs) -> np.ndarray:
+    def _compute(self, X: np.ndarray, **kwargs: Dict[str, Any]) -> np.ndarray:
         ei = self.acq._compute(X)
         if self.model.weights[-1] == 1:
             return ei

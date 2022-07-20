@@ -2,11 +2,14 @@ from copy import deepcopy
 from typing import List, Optional, Tuple
 
 from ConfigSpace import ConfigurationSpace
+
 import numpy as np
-from smac.epm.gaussian_process import GaussianProcess
-from smac.epm.gaussian_process.utils.prior import HorseshoePrior, LognormalPrior
-from smac.epm.gaussian_process.kernels import ConstantKernel, Matern, WhiteKernel, HammingKernel
+
 from sklearn.gaussian_process.kernels import Kernel
+
+from smac.epm.gaussian_process import GaussianProcess
+from smac.epm.gaussian_process.kernels import ConstantKernel, HammingKernel, Matern, WhiteKernel
+from smac.epm.gaussian_process.utils.prior import HorseshoePrior, LognormalPrior
 
 
 LENGTH_SCALE_BOUNDS = (np.exp(-6.754111155189306), np.exp(0.0858637988771976))
@@ -26,9 +29,7 @@ def get_const_and_noise_kernels(rng: np.random.RandomState) -> Tuple[ConstantKer
     return const_kernel, noise_kernel
 
 
-def get_main_kernel(
-    numerical_indices: np.ndarray, categorical_indices: np.ndarray
-) -> Kernel:
+def get_main_kernel(numerical_indices: np.ndarray, categorical_indices: np.ndarray) -> Kernel:
 
     n_numericals, n_categoricals = numerical_indices.size, categorical_indices.size
 

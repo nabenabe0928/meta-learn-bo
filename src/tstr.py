@@ -1,20 +1,22 @@
-from typing import Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 from ConfigSpace import Configuration
+
 import numpy as np
+
+from rgpe.utils import get_gaussian_process
+
 from smac.configspace import convert_configurations_to_array
 from smac.epm.base_epm import BaseEPM
-from rgpe.utils import get_gaussian_process
 
 
 class TSTR(BaseEPM):
-
     def __init__(
         self,
         training_data: Dict[int, Dict[str, Union[List[Configuration], np.ndarray]]],
         bandwidth: float = 0.1,
         number_of_function_evaluations: float = 50,
-        **kwargs
+        **kwargs: Dict[str, Any],
     ):
         """
         Two-stage transfer surrogate with ranking from "Scalable Gaussian process-based
@@ -35,7 +37,7 @@ class TSTR(BaseEPM):
             ``'probabilistic-ld'``.
         """
 
-        if kwargs.get('instance_features') is not None:
+        if kwargs.get("instance_features") is not None:
             raise NotImplementedError()
         super().__init__(**kwargs)
         self.training_data = training_data
@@ -53,8 +55,8 @@ class TSTR(BaseEPM):
                 rng=self.rng,
                 kernel=None,
             )
-            y_scaled = self._standardize(training_data[task]['y'])
-            configs = training_data[task]['configurations']
+            y_scaled = self._standardize(training_data[task]["y"])
+            configs = training_data[task]["configurations"]
             X = convert_configurations_to_array(configs)
 
             model.train(
@@ -107,7 +109,7 @@ class TSTR(BaseEPM):
                 t = discordant_pairs / total_pairs / self.bandwidth
                 discordant_pairs_per_task[model_idx] = discordant_pairs
                 if t < 1:
-                    weights[model_idx] = 0.75 * (1 - t ** 2)
+                    weights[model_idx] = 0.75 * (1 - t**2)
                 else:
                     weights[model_idx] = 0
 
@@ -120,9 +122,9 @@ class TSTR(BaseEPM):
         # create model and acquisition function
         return self
 
-    def _predict(self, X: np.ndarray, cov_return_type: str = 'diagonal_cov') -> Tuple[np.ndarray, np.ndarray]:
+    def _predict(self, X: np.ndarray, cov_return_type: str = "diagonal_cov") -> Tuple[np.ndarray, np.ndarray]:
 
-        if cov_return_type != 'diagonal_cov':
+        if cov_return_type != "diagonal_cov":
             raise NotImplementedError(cov_return_type)
 
         # compute posterior for each model
@@ -131,7 +133,7 @@ class TSTR(BaseEPM):
 
         # filter model with zero weights
         # weights on covariance matrices are weight**2
-        non_zero_weight_indices = (self.weights_ ** 2 > 0).nonzero()[0]
+        non_zero_weight_indices = (self.weights_**2 > 0).nonzero()[0]
         non_zero_weights = self.weights_[non_zero_weight_indices]
         # re-normalize
         non_zero_weights /= non_zero_weights.sum()
@@ -142,12 +144,12 @@ class TSTR(BaseEPM):
             mean, covar = self.model_list_[raw_idx]._predict(X)
 
             weighted_means.append(weight * mean)
-            weighted_covars.append(covar * weight ** 2)
+            weighted_covars.append(covar * weight**2)
 
         # set mean and covariance to be the rank-weighted sum the means and covariances
         # of the base models and target model
         mean_x = np.sum(np.stack(weighted_means), axis=0) * self.Y_std_ + self.Y_mean_
-        covar_x = np.sum(weighted_covars, axis=0) * (self.Y_std_ ** 2)
+        covar_x = np.sum(weighted_covars, axis=0) * (self.Y_std_**2)
         return mean_x, covar_x
 
     def sample_functions(self, X_test: np.ndarray, n_funcs: int = 1) -> np.ndarray:
@@ -170,7 +172,7 @@ class TSTR(BaseEPM):
 
         # filter model with zero weights
         # weights on covariance matrices are weight**2
-        non_zero_weight_indices = (self.weights_ ** 2 > 0).nonzero()[0]
+        non_zero_weight_indices = (self.weights_**2 > 0).nonzero()[0]
         non_zero_weights = self.weights_[non_zero_weight_indices]
         # re-normalize
         non_zero_weights /= non_zero_weights.sum()
