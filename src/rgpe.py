@@ -8,11 +8,6 @@ from smac.epm.gaussian_process import GaussianProcess
 from src.utils import get_gaussian_process
 
 
-def roll_col(X: np.ndarray, shift: int) -> np.ndarray:
-    """Rotate columns to right by shift."""
-    return np.concatenate((X[:, -shift:], X[:, :-shift]), axis=1)
-
-
 def drop_ranking_loss(
     ranking_loss: np.ndarray,
     n_evals: int,
@@ -64,33 +59,16 @@ def bootstrap(
     )
     preds.append(loo_preds)
     preds = np.asarray(preds)
+    (_, n_points) = preds.shape  # (n_tasks, n_points)
+    bs_indices = rng.choice(n_points, size=(n_samples, n_points), replace=True)
 
-    bootstrap_indices = rng.choice(preds.shape[1],
-                                   size=(n_samples, preds.shape[1]),
-                                   replace=True)
-
-    bootstrap_predictions = []
-    bootstrap_targets = y_train[bootstrap_indices].reshape((n_samples, len(y_train)))
-    for m in range(n_tasks):
-        bootstrap_predictions.append(preds[m, bootstrap_indices])
+    bs_preds = [pred[bs_indices] for pred in preds]  # (n_tasks, n_samples, n_points)
+    bs_targets = y_train[bs_indices].reshape((n_samples, len(y_train)))
 
     ranking_loss = np.zeros((n_tasks, n_samples))
     for i in range(len(n_tasks - 1)):
-
-        for j in range(len(y_train)):
-            ranking_loss[i] += np.sum(
-                (
-                    roll_col(bootstrap_predictions[i], j) < bootstrap_predictions[i])
-                    ^ (roll_col(bootstrap_targets, j) < bootstrap_targets
-                ), axis=1
-            )
-    for j in range(len(y_train)):
-        ranking_loss[-1] += np.sum(
-            (
-                (roll_col(bootstrap_predictions[-1], j) < bootstrap_targets)
-                ^ (roll_col(bootstrap_targets, j) < bootstrap_targets)
-            ), axis=1
-        )
+        # TODO: Check
+        pass
 
     return ranking_loss
 
@@ -116,15 +94,7 @@ def compute_rank_weights(
     max_evals: int,
     rng: np.random.RandomState,
 ) -> np.ndarray:
-    """
-    Compute ranking weights for each base model and the target model
-    (using LOOCV for the target model).
-
-    Returns
-    -------
-    weights : np.ndarray
-    """
-    preds = [model.predict(x_train)[0].flatten() for model in base_models]
+    preds = [model.predict(x_train, cov_return_type=None).flatten() for model in base_models]
     ranking_loss = bootstrap(
         preds=preds,
         target_model=target_model,
@@ -164,7 +134,6 @@ class RGPE(BaseEPM):
                 The name of the objective func.
         """
         super().__init__(**kwargs)
-
         self._max_evals = max_evals
         self._n_samples = n_samples
         self._rng = np.random.RandomState(self.seed)
@@ -172,7 +141,6 @@ class RGPE(BaseEPM):
         self._gp_kwargs = dict(
             bounds=self.bounds, types=self.types, configspace=self.configspace, kernel=None, rng=self._rng
         )
-
         self._n_tasks = len(metadata) + 1
         self._base_models: List[GaussianProcess]
         self._train_models_on_metatask(metadata)
