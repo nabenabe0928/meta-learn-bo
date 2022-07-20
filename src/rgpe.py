@@ -23,12 +23,13 @@ def drop_ranking_loss(
     worse_than_target = n_samples - better_than_target
     p_keep = better_than_target / (better_than_target + worse_than_target)
     p_keep *= 1 - n_evals / max_evals
+    p_keep = np.append(p_keep, 1)  # the target task will not be dropped.
     # if rand > p_keep --> drop
     ranking_loss[rng.random(n_tasks) > p_keep] = np.max(ranking_loss) * 2 + 1
     return ranking_loss
 
 
-def leave_one_out_cross_validation(X: np.ndarray, Y: np.ndarray, target_model: GaussianProcess) -> List[float]:
+def leave_one_out_cross_validation(X: np.ndarray, Y: np.ndarray, target_model: GaussianProcess) -> np.ndarray:
     n_samples = len(X)
     masks = np.eye(n_samples, dtype=np.bool)
     keys = ["configspace", "bounds", "types", "rng", "kernel"]
@@ -41,7 +42,7 @@ def leave_one_out_cross_validation(X: np.ndarray, Y: np.ndarray, target_model: G
         pred_val: float = loo_model.predict(_x_test)[0][0][0]
         loo_preds.append(pred_val)
 
-    return loo_preds
+    return np.asarray(loo_preds)
 
 
 def compute_rank_weights(ranking_loss: np.ndarray) -> np.ndarray:
@@ -114,8 +115,8 @@ class RGPE(BaseEPM):
 
     def _bootstrap(self, preds: np.ndarray, X: np.ndarray, Y: np.ndarray) -> np.ndarray:
         n_tasks = len(preds) + 1
-        preds = np.append(preds, leave_one_out_cross_validation(X=X, Y=Y, target_model=self.target_model))
-        preds = preds if len(preds.shape) == 2 else preds[np.newaxis, :]
+        loo_preds = leave_one_out_cross_validation(X=X, Y=Y, target_model=self.target_model)
+        preds = loo_preds[np.newaxis, :] if preds.size == 0 else np.vstack([preds, loo_preds])
         (_, n_points) = preds.shape  # (n_tasks, n_points:=len(X))
         bs_indices = self._rng.choice(n_points, size=(self._n_samples, n_points), replace=True)
 

@@ -28,6 +28,20 @@ def sphere(config: CS.Configuration, shift: int = 0) -> float:
     return np.sum((X - shift) ** 2)
 
 
+def get_metadata(shifts: List[int]) -> Dict[str, Dict[str, np.ndarray]]:
+    metadata: Dict[str, Dict[str, np.ndarray]] = {}
+    for shift in shifts:
+        key = f"shift={shift}"
+        metadata[key] = {}
+        X = np.random.random((50, 2))
+        Y = np.sum((X - shift) ** 2, axis=-1)
+        metadata[key]["x0"] = X[:, 0]
+        metadata[key]["x1"] = X[:, 1]
+        metadata[key]["loss"] = Y
+
+    return metadata
+
+
 def main(max_evals: int, config_space: CS.ConfigurationSpace, seed: int):
     scenario = Scenario(
         dict(
@@ -38,7 +52,8 @@ def main(max_evals: int, config_space: CS.ConfigurationSpace, seed: int):
         )
     )
     model_kwargs = dict(
-        metadata={},
+        metadata=get_metadata(shifts=[1, 2]),
+        # metadata={},
         n_samples=1000,
         max_evals=max_evals,
         metric_name="loss",

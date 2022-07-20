@@ -36,12 +36,13 @@ class TAF(AbstractAcquisitionFunction):
         if self.model.weights[-1] == 1:
             return ei
 
-        improvements = []
+        weighted_ei_vals = []
         for w, best_val, base_model in zip(self.model.weights, self._best_vals, self.model.base_models):
             if w == 0:
                 continue
 
             preds = base_model._predict(X)[0]
-            improvements.append(w * np.maximum(best_val - preds, 0).flatten())
+            weighted_ei_vals.append(w * np.maximum(best_val - preds, 0).flatten())
 
-        return ei.flatten() * self.model.weights[-1] + np.sum(improvements, axis=0).reshape((-1, 1))
+        ensemble_ei = ei.flatten() * self.model.weights[-1] + np.sum(weighted_ei_vals, axis=0)
+        return ensemble_ei[:, np.newaxis]
