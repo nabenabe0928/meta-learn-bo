@@ -19,27 +19,27 @@ class TAF(AbstractAcquisitionFunction):
 
     def update(self, **kwargs) -> None:
         X = kwargs['X']
-        preds = self.model.target_model.predict(X, cov_return_type=None)
+        preds = self.model.target_model.predict(X)[0]
         assert (id(kwargs['model']) == id(self.model))
         self.acq.model = None
         self.acq.update(model=self.model.target_model, eta=np.min(preds))
         best_vals = [
-            None if weight == 0 else np.min(base_model.predict(X, cov_return_type=None))
-            for weight, base_model in zip(self.model.weights_, self.model.base_models)
+            None if weight == 0 else np.min(base_model.predict(X)[0])
+            for weight, base_model in zip(self.model.weights, self.model.base_models)
         ]
         self._best_vals = best_vals
 
     def _compute(self, X: np.ndarray, **kwargs) -> np.ndarray:
         ei = self.acq._compute(X)
-        if self.model.weights_[-1] == 1:
+        if self.model.weights[-1] == 1:
             return ei
 
         improvements = []
-        for w, best_val, base_model in zip(self.model.weights_, self._best_vals, self.model.base_models):
+        for w, best_val, base_model in zip(self.model.weights, self._best_vals, self.model.base_models):
             if w == 0:
                 continue
 
-            preds = base_model._predict(X, cov_return_type=None)
+            preds = base_model._predict(X)[0]
             improvements.append(w * np.maximum(best_val - preds, 0).flatten())
 
-        return ei.flatten() * self.model.weights_[-1] + np.sum(improvements, axis=0).reshape((-1, 1))
+        return ei.flatten() * self.model.weights[-1] + np.sum(improvements, axis=0).reshape((-1, 1))
