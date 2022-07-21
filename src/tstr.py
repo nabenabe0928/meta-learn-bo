@@ -37,12 +37,12 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
             return np.ones(self._n_tasks) / self._n_tasks
 
         n_samples = Y.size
-        n_pairs = n_samples * (n_samples - 1) / 2
+        n_pairs = n_samples * (n_samples - 1)
         # preds.shape = (n_tasks - 1, n_samples)
         preds = np.asarray([model.predict(X)[0].flatten() for model in self.base_models])
         order_info = (preds[:, :, np.newaxis] < preds[:, np.newaxis, :]) ^ (Y[:, np.newaxis] < Y)
         ts = np.sum(order_info, axis=(1, 2)) / (n_pairs * self._bandwidth)
-        ts = np.maximum(ts, 1)
+        ts = np.minimum(ts, 1)
 
         weights = np.ones(self._n_tasks) * 0.75
         weights[:-1] *= 1 - ts**2
