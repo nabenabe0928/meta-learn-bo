@@ -6,7 +6,7 @@ from smac.epm.base_epm import BaseEPM
 from smac.optimizer.acquisition import AbstractAcquisitionFunction, EI
 
 
-class TAF(AbstractAcquisitionFunction):
+class TransferAcquisitionFunc(AbstractAcquisitionFunction):
     def __init__(self, model: BaseEPM):
         """Transfer acquisition function from "Scalable Gaussian process-based transfer surrogates
         for hyperparameter optimization" by Wistuba, Schilling and Schmidt-Thieme,
