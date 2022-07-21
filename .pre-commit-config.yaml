@@ -5,13 +5,13 @@ repos:
       - id: mypy
         args: [--show-error-codes]
         name: mypy check
-        files: src
+        files: meta_learn_bo
   - repo: https://gitlab.com/pycqa/flake8
     rev: 3.8.3
     hooks:
       - id: flake8
         name: flake8 check
-        files: src/
+        files: meta_learn_bo/
         additional_dependencies:
           - flake8-import-order
       - id: flake8
