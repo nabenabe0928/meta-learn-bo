@@ -80,7 +80,7 @@ class RankingWeigtedGaussianProcessEnsemble(BaseWeightedGP):
         # n_samples --> number of bootstrap, n_evals --> number of target observations
 
         loo_preds = leave_one_out_cross_validation(X=X, Y=Y, target_model=self.target_model)
-        preds = loo_preds[np.newaxis, :] if preds.size == 0 else np.vstack([preds, loo_preds])
+        preds = np.vstack([preds, loo_preds])
         (n_tasks, n_evals) = preds.shape
 
         bs_indices = self._rng.choice(n_evals, size=(self._n_samples, n_evals), replace=True)
@@ -101,7 +101,7 @@ class RankingWeigtedGaussianProcessEnsemble(BaseWeightedGP):
         return ranking_loss
 
     def _compute_rank_weights(self, X: np.ndarray, Y: np.ndarray) -> np.ndarray:
-        if X.shape[0] < 3:  # Not sufficient data points
+        if self._n_tasks == 1 or X.shape[0] < 3:  # Not sufficient data points
             return np.ones(self._n_tasks) / self._n_tasks
 
         preds = [model.predict(X)[0].flatten() for model in self.base_models]
