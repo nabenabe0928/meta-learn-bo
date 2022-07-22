@@ -6,7 +6,7 @@ import numpy as np
 from smac.epm.base_epm import BaseEPM
 from smac.epm.gaussian_process import GaussianProcess
 
-from src.utils import get_gaussian_process
+from meta_learn_bo.utils import get_gaussian_process
 
 
 EPS = 1e-8

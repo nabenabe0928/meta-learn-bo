@@ -2,7 +2,7 @@ from typing import Any, Dict
 
 import numpy as np
 
-from src.base_weighted_gp import BaseWeightedGP
+from meta_learn_bo.base_weighted_gp import BaseWeightedGP
 
 
 class TwoStageTransferWithRanking(BaseWeightedGP):
@@ -40,8 +40,8 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
         n_pairs = n_samples * (n_samples - 1)
         # preds.shape = (n_tasks - 1, n_samples)
         preds = np.asarray([model.predict(X)[0].flatten() for model in self.base_models])
-        order_info = (preds[:, :, np.newaxis] < preds[:, np.newaxis, :]) ^ (Y[:, np.newaxis] < Y)
-        ts = np.sum(order_info, axis=(1, 2)) / (n_pairs * self._bandwidth)
+        discordant_info = (preds[:, :, np.newaxis] < preds[:, np.newaxis, :]) ^ (Y[:, np.newaxis] < Y)
+        ts = np.sum(discordant_info, axis=(1, 2)) / (n_pairs * self._bandwidth)
         ts = np.minimum(ts, 1)
 
         weights = np.ones(self._n_tasks) * 0.75

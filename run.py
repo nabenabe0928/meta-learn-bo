@@ -5,13 +5,19 @@ import ConfigSpace as CS
 import numpy as np
 
 from smac.facade.smac_bb_facade import SMAC4BB
-from smac.multi_objective.parego import ParEGO
+# from smac.multi_objective.parego import ParEGO
 from smac.optimizer.acquisition.maximizer import FixedSet
 from smac.scenario.scenario import Scenario
 
-# from meta_learn_bo.rgpe import RankingWeigtedGaussianProcessEnsemble
+from meta_learn_bo.rgpe import RankingWeigtedGaussianProcessEnsemble
 from meta_learn_bo.tstr import TwoStageTransferWithRanking
 from meta_learn_bo.taf import TransferAcquisitionFunc
+
+
+models = {
+    "rgpe": RankingWeigtedGaussianProcessEnsemble,
+    "tstr": TwoStageTransferWithRanking,
+}
 
 
 def acq_func_optimizer(
@@ -35,12 +41,12 @@ def multi_sphere(config: CS.Configuration) -> Tuple[float, float]:
     return {"f1": np.sum((X - 1) ** 2), "f2": np.sum((X + 1) ** 2)}
 
 
-def get_metadata(shifts: List[int]) -> Dict[str, Dict[str, np.ndarray]]:
+def get_metadata(shifts: List[int], n_samples: int = 50) -> Dict[str, Dict[str, np.ndarray]]:
     metadata: Dict[str, Dict[str, np.ndarray]] = {}
     for shift in shifts:
         key = f"shift={shift}"
         metadata[key] = {}
-        X = np.random.random((50, 2))
+        X = np.random.random((n_samples, 2))
         Y = np.sum((X - shift) ** 2, axis=-1)
         metadata[key]["x0"] = X[:, 0]
         metadata[key]["x1"] = X[:, 1]
@@ -56,31 +62,29 @@ def main(max_evals: int, config_space: CS.ConfigurationSpace, seed: int):
             runcount_limit=max_evals,
             cs=config_space,
             output_dir=None,
-            multi_objectives=["f1", "f2"],
+            # multi_objectives=["f1", "f2"],
         )
     )
     model_kwargs = dict(
-        # metadata=get_metadata(shifts=[1, 2]),
-        metadata={},
-        # n_samples=1000,
+        metadata=get_metadata(shifts=[0, 1, 2]),
+        n_samples=50,
         max_evals=max_evals,
         metric_name="loss",
     )
     optimizer = SMAC4BB(
         scenario=scenario,
         rng=np.random.RandomState(seed),
-        # model=RankingWeigtedGaussianProcessEnsemble,
-        model=TwoStageTransferWithRanking,
+        model=models["rgpe"],
         model_kwargs=model_kwargs,
-        # tae_runner=lambda config: sphere(config, shift=0),
-        tae_runner=multi_sphere,
+        tae_runner=lambda config: sphere(config, shift=0),
+        # tae_runner=multi_sphere,
         initial_design=None,
         initial_design_kwargs={},
         initial_configurations=None,
         acquisition_function=TransferAcquisitionFunc,
         acquisition_function_optimizer=None,
         acquisition_function_optimizer_kwargs={},
-        multi_objective_algorithm=ParEGO,
+        # multi_objective_algorithm=ParEGO,
     )
 
     # Disable initial random sampling
@@ -92,4 +96,4 @@ if __name__ == "__main__":
     config_space = CS.ConfigurationSpace()
     config_space.add_hyperparameter(CS.UniformFloatHyperparameter("x0", -5, 5))
     config_space.add_hyperparameter(CS.UniformFloatHyperparameter("x1", -5, 5))
-    main(max_evals=10, config_space=config_space, seed=0)
+    main(max_evals=30, config_space=config_space, seed=0)

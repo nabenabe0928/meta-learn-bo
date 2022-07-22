@@ -4,8 +4,8 @@ import numpy as np
 
 from smac.epm.gaussian_process import GaussianProcess
 
-from src.base_weighted_gp import BaseWeightedGP
-from src.utils import get_gaussian_process
+from meta_learn_bo.base_weighted_gp import BaseWeightedGP
+from meta_learn_bo.utils import get_gaussian_process
 
 
 def drop_ranking_loss(
@@ -17,9 +17,7 @@ def drop_ranking_loss(
     # ranking_loss.shape --> (n_tasks, n_samples)
     (n_tasks, n_samples) = ranking_loss.shape
     better_than_target = np.sum(ranking_loss[:-1] < ranking_loss[-1], axis=-1)
-    worse_than_target = n_samples - better_than_target
-    p_keep = better_than_target / (better_than_target + worse_than_target)
-    p_keep *= 1 - n_evals / max_evals
+    p_keep = (better_than_target / n_samples) * (1 - n_evals / max_evals)
     p_keep = np.append(p_keep, 1)  # the target task will not be dropped.
     # if rand > p_keep --> drop
     ranking_loss[rng.random(n_tasks) > p_keep] = np.max(ranking_loss) * 2 + 1
@@ -44,10 +42,10 @@ def leave_one_out_cross_validation(X: np.ndarray, Y: np.ndarray, target_model: G
 
 def compute_rank_weights(ranking_loss: np.ndarray) -> np.ndarray:
     (n_tasks, n_samples) = ranking_loss.shape
-    sample_wise_min = np.min(ranking_loss, axis=0)
+    sample_wise_min = np.min(ranking_loss, axis=0)  # shape = (n_samples, )
     best_counts = np.zeros(n_tasks)
     best_task_masks = (ranking_loss == sample_wise_min).T  # shape = (n_samples, n_tasks)
-    counts_of_best_in_sample = np.sum(best_task_masks, axis=-1)
+    counts_of_best_in_sample = np.sum(best_task_masks, axis=-1)  # shape = (n_samples, )
     for best_task_mask, count in zip(best_task_masks, counts_of_best_in_sample):
         best_counts[best_task_mask] += 1.0 / count
 
@@ -79,14 +77,15 @@ class RankingWeigtedGaussianProcessEnsemble(BaseWeightedGP):
         self._n_samples = n_samples
 
     def _bootstrap(self, preds: np.ndarray, X: np.ndarray, Y: np.ndarray) -> np.ndarray:
-        n_tasks = len(preds) + 1
+        # n_samples --> number of bootstrap, n_evals --> number of target observations
+
         loo_preds = leave_one_out_cross_validation(X=X, Y=Y, target_model=self.target_model)
         preds = loo_preds[np.newaxis, :] if preds.size == 0 else np.vstack([preds, loo_preds])
-        (_, n_points) = preds.shape  # (n_tasks, n_points:=len(X))
-        bs_indices = self._rng.choice(n_points, size=(self._n_samples, n_points), replace=True)
+        (n_tasks, n_evals) = preds.shape
 
-        bs_preds = np.asarray([pred[bs_indices] for pred in preds])  # (n_tasks, n_samples, n_points)
-        bs_targets = Y[bs_indices].reshape((self._n_samples, len(Y)))
+        bs_indices = self._rng.choice(n_evals, size=(self._n_samples, n_evals), replace=True)
+        bs_preds = np.asarray([pred[bs_indices] for pred in preds])  # (n_tasks, n_samples, n_evals)
+        bs_targets = Y[bs_indices].reshape((self._n_samples, n_evals))
 
         ranking_loss = np.zeros((n_tasks, self._n_samples))
         ranking_loss[:-1] += np.sum(
