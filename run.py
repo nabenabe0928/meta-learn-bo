@@ -9,9 +9,11 @@ from smac.facade.smac_bb_facade import SMAC4BB
 from smac.optimizer.acquisition.maximizer import FixedSet
 from smac.scenario.scenario import Scenario
 
-from meta_learn_bo.rgpe import RankingWeigtedGaussianProcessEnsemble
-from meta_learn_bo.tstr import TwoStageTransferWithRanking
-from meta_learn_bo.taf import TransferAcquisitionFunc
+from meta_learn_bo import (
+    RankingWeigtedGaussianProcessEnsemble,
+    TransferAcquisitionFunc,
+    TwoStageTransferWithRanking,
+)
 
 
 models = {

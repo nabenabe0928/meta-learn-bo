@@ -6,6 +6,9 @@ from smac.epm.base_epm import BaseEPM
 from smac.optimizer.acquisition import AbstractAcquisitionFunction, EI
 
 
+EPS = 1e-8
+
+
 class TransferAcquisitionFunc(AbstractAcquisitionFunction):
     def __init__(self, model: BaseEPM):
         """Transfer acquisition function from "Scalable Gaussian process-based transfer surrogates
@@ -38,7 +41,7 @@ class TransferAcquisitionFunc(AbstractAcquisitionFunction):
 
         weighted_ei_vals = []
         for w, best_val, base_model in zip(self.model.weights, self._best_vals, self.model.base_models):
-            if w == 0:
+            if w <= EPS:
                 continue
 
             preds = base_model._predict(X)[0]
