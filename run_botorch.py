@@ -21,12 +21,12 @@ warnings.filterwarnings("ignore")
 class TransferMultiObjectiveAcquisitionFunction(MultiObjectiveAnalyticAcquisitionFunction):
     def __init__(self, acq_fn_list: List[ExpectedHypervolumeImprovement], weights: torch.Tensor):
         assert torch.isclose(weights.sum(), torch.tensor(1.0))
+        super().__init__(model=None)
         self._acq_fn_list = acq_fn_list
         self._weights = weights
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
-        out = torch.tensor([weight * acq_fn(X) for acq_fn, weight in zip(self._acq_fn_list, self._weights)])
-        return out.sum(axis=0)
+        return sum(weight * acq_fn(X) for acq_fn, weight in zip(self._acq_fn_list, self._weights))
 
 
 def update_observations(
@@ -84,6 +84,8 @@ def optimize(method: str = "parego"):
 
         model, X_train, Y_train = get_model_and_train_data(observations=observations, weights=weights, **kwargs)
         acq_fn = get_acq_fn(model=model, X_train=X_train, Y_train=Y_train, method=method)
+        weights = torch.full((2, ), 0.5)
+        acq_fn = TransferMultiObjectiveAcquisitionFunction(acq_fn_list=[acq_fn, acq_fn], weights=weights)
 
         eval_config = optimize_acq_fn(acq_fn=acq_fn, bounds=bounds, hp_names=hp_names)
         results = obj_func(eval_config)
