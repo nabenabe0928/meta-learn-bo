@@ -5,6 +5,7 @@ import ConfigSpace as CS
 import numpy as np
 
 from smac.facade.smac_bb_facade import SMAC4BB
+
 # from smac.multi_objective.parego import ParEGO
 from smac.optimizer.acquisition.maximizer import FixedSet
 from smac.scenario.scenario import Scenario

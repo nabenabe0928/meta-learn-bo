@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 
@@ -95,7 +95,7 @@ def fit_model(
     Y_mean: torch.Tensor,
     Y_std: torch.Tensor,
     scalarize: bool = False,
-) -> Tuple[ModelListGP, FixedNoiseGP]:
+) -> Union[ModelListGP, FixedNoiseGP]:
 
     if scalarize:  # ParEGO
         model = fit_gp_model(X_train=X_train, Y=Y_train, y_mean=Y_mean, y_std=Y_std)
@@ -115,37 +115,38 @@ def fit_model(
         return model
 
 
-def get_parego(
+def get_model_and_train_data(
     observations: torch.Tensor,
     bounds: Dict[str, Tuple[float, float]],
     hp_names: List[str],
     minimize: Dict[str, bool],
-    weights: torch.Tensor,
-):
-    assert torch.isclose(weights.sum(), torch.tensor(1.0))
-    X_train, Y_train, y_mean, y_std = get_train_data(
-        observations=observations,
-        bounds=bounds,
-        hp_names=hp_names,
-        minimize=minimize,
-        weights=weights,
-    )
-    model = fit_model(X_train=X_train, Y_train=Y_train, Y_mean=y_mean, Y_std=y_std, scalarize=True)
+    weights: Optional[torch.Tensor] = None,
+) -> Tuple[Union[FixedNoiseGP, ModelListGP], torch.Tensor, torch.Tensor]:
+    if weights is not None:
+        assert torch.isclose(weights.sum(), torch.tensor(1.0))
+        X_train, Y_train, y_mean, y_std = get_train_data(
+            observations=observations,
+            bounds=bounds,
+            hp_names=hp_names,
+            minimize=minimize,
+            weights=weights,
+        )
+        model = fit_model(X_train=X_train, Y_train=Y_train, Y_mean=y_mean, Y_std=y_std, scalarize=True)
+    else:
+        X_train, Y_train, Y_mean, Y_std = get_train_data(
+            observations=observations, bounds=bounds, hp_names=hp_names, minimize=minimize
+        )
+        model = fit_model(X_train=X_train, Y_train=Y_train, Y_mean=Y_mean, Y_std=Y_std)
+
+    return model, X_train, Y_train
+
+
+def get_parego(model: FixedNoiseGP, X_train: torch.Tensor, Y_train: torch.Tensor) -> ExpectedImprovement:
     acq_fn = ExpectedImprovement(model=model, best_f=Y_train.amax())
     return acq_fn
 
 
-def get_ehvi(
-    observations: torch.Tensor,
-    bounds: Dict[str, Tuple[float, float]],
-    hp_names: List[str],
-    minimize: Dict[str, bool],
-) -> ExpectedHypervolumeImprovement:
-    X_train, Y_train, Y_mean, Y_std = get_train_data(
-        observations=observations, bounds=bounds, hp_names=hp_names, minimize=minimize
-    )
-    model = fit_model(X_train=X_train, Y_train=Y_train, Y_mean=Y_mean, Y_std=Y_std)
-
+def get_ehvi(model: ModelListGP, X_train: torch.Tensor, Y_train: torch.Tensor) -> ExpectedHypervolumeImprovement:
     with torch.no_grad():
         pred = model.posterior(X_train).mean
 
@@ -158,6 +159,17 @@ def get_ehvi(
         partitioning=partitioning,
     )
     return acq_fn
+
+
+def get_acq_fn(
+    model: FixedNoiseGP, X_train: torch.Tensor, Y_train: torch.Tensor, method: Literal["parego", "ehvi"]
+) -> Union[ExpectedImprovement, ExpectedHypervolumeImprovement]:
+    supported_methods = {"parego": get_parego, "ehvi": get_ehvi}
+    for method_name, func in supported_methods.items():
+        if method_name == method:
+            return func(model=model, X_train=X_train, Y_train=Y_train)
+    else:
+        raise ValueError(f"method must be in {supported_methods}, but got {method}")
 
 
 def optimize_acq_fn(

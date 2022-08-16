@@ -9,8 +9,8 @@ from botorch.acquisition.multi_objective import ExpectedHypervolumeImprovement
 from botorch.acquisition.multi_objective.analytic import MultiObjectiveAnalyticAcquisitionFunction
 
 from botorch_utils import (
-    get_ehvi,
-    get_parego,
+    get_acq_fn,
+    get_model_and_train_data,
     optimize_acq_fn,
 )
 
@@ -77,12 +77,13 @@ def optimize(method: str = "parego"):
     observations = initial_sample(n_init=10, **kwargs)
 
     for t in range(100):
+        weights = None
         if method == "parego":
             weights = torch.rand(2)
             weights /= torch.sum(weights)
-            acq_fn = get_parego(observations=observations, weights=weights, **kwargs)
-        elif method == "ehvi":
-            acq_fn = get_ehvi(observations=observations, **kwargs)
+
+        model, X_train, Y_train = get_model_and_train_data(observations=observations, weights=weights, **kwargs)
+        acq_fn = get_acq_fn(model=model, X_train=X_train, Y_train=Y_train, method=method)
 
         eval_config = optimize_acq_fn(acq_fn=acq_fn, bounds=bounds, hp_names=hp_names)
         results = obj_func(eval_config)
@@ -93,4 +94,4 @@ def optimize(method: str = "parego"):
 
 
 if __name__ == "__main__":
-    optimize()
+    optimize(method="ehvi")
