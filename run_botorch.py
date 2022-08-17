@@ -3,30 +3,12 @@ import warnings
 
 import numpy as np
 
-import torch
+from dev.botorch_utils import optimize_acq_fn
 
-from botorch.acquisition.multi_objective import ExpectedHypervolumeImprovement
-from botorch.acquisition.multi_objective.analytic import MultiObjectiveAnalyticAcquisitionFunction
-
-from botorch_utils import (
-    get_acq_fn,
-    get_model_and_train_data,
-    optimize_acq_fn,
-)
+from dev.rgpe import RankingWeigtedGaussianProcessEnsemble
 
 
 warnings.filterwarnings("ignore")
-
-
-class TransferMultiObjectiveAcquisitionFunction(MultiObjectiveAnalyticAcquisitionFunction):
-    def __init__(self, acq_fn_list: List[ExpectedHypervolumeImprovement], weights: torch.Tensor):
-        assert torch.isclose(weights.sum(), torch.tensor(1.0))
-        super().__init__(model=None)
-        self._acq_fn_list = acq_fn_list
-        self._weights = weights
-
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
-        return sum(weight * acq_fn(X) for acq_fn, weight in zip(self._acq_fn_list, self._weights))
 
 
 def update_observations(
@@ -74,26 +56,30 @@ def optimize(method: str = "parego"):
     bounds: Dict[str, Tuple[float, float]] = {"x0": (-5, 5), "x1": (-5, 5)}
     minimize: Dict[str, bool] = {"f1": True, "f2": True}
     kwargs = dict(hp_names=hp_names, minimize=minimize, bounds=bounds)
-    observations = initial_sample(n_init=10, **kwargs)
 
-    for t in range(100):
-        weights = None
-        if method == "parego":
-            weights = torch.rand(2)
-            weights /= torch.sum(weights)
+    n_init, max_evals = 5, 10
+    observations = initial_sample(n_init=n_init, **kwargs)
+    rgpe = RankingWeigtedGaussianProcessEnsemble(
+        init_data=observations,
+        metadata={"src": initial_sample(n_init=50, **kwargs)},
+        n_samples=100,
+        max_evals=max_evals,
+        hp_names=hp_names,
+        method=method,
+        minimize=minimize,
+        bounds=bounds,
+        target_task_name="target",
+    )
 
-        model, X_train, Y_train = get_model_and_train_data(observations=observations, weights=weights, **kwargs)
-        acq_fn = get_acq_fn(model=model, X_train=X_train, Y_train=Y_train, method=method)
-        weights = torch.full((2, ), 0.5)
-        acq_fn = TransferMultiObjectiveAcquisitionFunction(acq_fn_list=[acq_fn, acq_fn], weights=weights)
-
-        eval_config = optimize_acq_fn(acq_fn=acq_fn, bounds=bounds, hp_names=hp_names)
+    for t in range(max_evals - n_init):
+        eval_config = optimize_acq_fn(acq_fn=rgpe.acq_fn, bounds=bounds, hp_names=hp_names)
         results = obj_func(eval_config)
+        rgpe.update(eval_config=eval_config, results=results)
         print(f"Iteration {t + 1}: ", eval_config, results)
-        update_observations(observations=observations, eval_config=eval_config, results=results)
 
-    print(observations)
+    print(rgpe.observations)
 
 
 if __name__ == "__main__":
-    optimize(method="ehvi")
+    # optimize(method="ehvi")
+    optimize(method="parego")

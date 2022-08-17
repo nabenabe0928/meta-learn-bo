@@ -7,7 +7,7 @@ import torch
 from botorch import fit_gpytorch_model
 from botorch.acquisition import ExpectedImprovement
 from botorch.acquisition.multi_objective import ExpectedHypervolumeImprovement
-from botorch.models import FixedNoiseGP
+from botorch.models import SingleTaskGP
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.optim.optimize import optimize_acqf
 from botorch.utils.multi_objective.box_decompositions.non_dominated import FastNondominatedPartitioning
@@ -64,48 +64,40 @@ def get_train_data(
     hp_names: List[str],
     minimize: Dict[str, bool],
     weights: Optional[torch.Tensor] = None,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     # NOTE: Y_train will be transformed so that larger is better for botorch
+    # X_train.shape = (n_samples, dim)
     X_train = normalize(observations=observations, bounds=bounds, hp_names=hp_names).T
+    # Y_train.shape = (n_obj, n_samples)
     Y_train = torch.as_tensor(
         np.asarray([(1 - 2 * do_min) * observations[obj_name] for obj_name, do_min in minimize.items()])
     )
     if weights is None:
         Y_mean = Y_train.mean(axis=-1)
         Y_std = Y_train.std(axis=-1)
-        return X_train, (Y_train - Y_mean[:, None]) / Y_std[:, None], Y_mean, Y_std
+        return X_train, (Y_train - Y_mean[:, None]) / Y_std[:, None]
     else:  # scalarization
         Y_train = scalarize(Y_train=Y_train, weights=weights)
         Y_mean = Y_train.mean()
         Y_std = Y_train.std()
-        return X_train, (Y_train - Y_mean) / Y_std, Y_mean, Y_std
-
-
-def fit_gp_model(X_train: torch.Tensor, Y: torch.Tensor, y_mean: float, y_std: float) -> FixedNoiseGP:
-    Y_train = Y[:, None]
-    Y_var_train = torch.full_like(Y_train, y_std**2)
-    model = FixedNoiseGP(train_X=X_train, train_Y=Y_train, train_Yvar=Y_var_train)
-    model.Y_mean, model.Y_std = y_mean, y_std
-    return model
+        return X_train, (Y_train - Y_mean) / Y_std
 
 
 def fit_model(
     X_train: torch.Tensor,
     Y_train: torch.Tensor,
-    Y_mean: torch.Tensor,
-    Y_std: torch.Tensor,
     scalarize: bool = False,
-) -> Union[ModelListGP, FixedNoiseGP]:
+) -> Union[ModelListGP, SingleTaskGP]:
 
     if scalarize:  # ParEGO
-        model = fit_gp_model(X_train=X_train, Y=Y_train, y_mean=Y_mean, y_std=Y_std)
+        model = SingleTaskGP(train_X=X_train, train_Y=Y_train[:, None])
         mll = ExactMarginalLogLikelihood(model.likelihood, model)
         fit_gpytorch_model(mll)
         return model
     else:  # EHVI
-        models: List[FixedNoiseGP] = []
-        for Y, y_mean, y_std in zip(Y_train, Y_mean, Y_std):
-            _model = fit_gp_model(X_train=X_train, Y=Y, y_mean=y_mean, y_std=y_std)
+        models: List[SingleTaskGP] = []
+        for Y in Y_train:
+            _model = SingleTaskGP(train_X=X_train, train_Y=Y[:, None])
             models.append(_model)
 
         model = ModelListGP(*models)
@@ -116,32 +108,32 @@ def fit_model(
 
 
 def get_model_and_train_data(
-    observations: torch.Tensor,
+    observations: Dict[str, np.ndarray],
     bounds: Dict[str, Tuple[float, float]],
     hp_names: List[str],
     minimize: Dict[str, bool],
     weights: Optional[torch.Tensor] = None,
-) -> Tuple[Union[FixedNoiseGP, ModelListGP], torch.Tensor, torch.Tensor]:
+) -> Tuple[Union[SingleTaskGP, ModelListGP], torch.Tensor, torch.Tensor]:
     if weights is not None:
         assert torch.isclose(weights.sum(), torch.tensor(1.0))
-        X_train, Y_train, y_mean, y_std = get_train_data(
+        X_train, Y_train = get_train_data(
             observations=observations,
             bounds=bounds,
             hp_names=hp_names,
             minimize=minimize,
             weights=weights,
         )
-        model = fit_model(X_train=X_train, Y_train=Y_train, Y_mean=y_mean, Y_std=y_std, scalarize=True)
+        model = fit_model(X_train=X_train, Y_train=Y_train, scalarize=True)
     else:
-        X_train, Y_train, Y_mean, Y_std = get_train_data(
+        X_train, Y_train = get_train_data(
             observations=observations, bounds=bounds, hp_names=hp_names, minimize=minimize
         )
-        model = fit_model(X_train=X_train, Y_train=Y_train, Y_mean=Y_mean, Y_std=Y_std)
+        model = fit_model(X_train=X_train, Y_train=Y_train)
 
     return model, X_train, Y_train
 
 
-def get_parego(model: FixedNoiseGP, X_train: torch.Tensor, Y_train: torch.Tensor) -> ExpectedImprovement:
+def get_parego(model: SingleTaskGP, X_train: torch.Tensor, Y_train: torch.Tensor) -> ExpectedImprovement:
     acq_fn = ExpectedImprovement(model=model, best_f=Y_train.amax())
     return acq_fn
 
@@ -162,7 +154,7 @@ def get_ehvi(model: ModelListGP, X_train: torch.Tensor, Y_train: torch.Tensor) -
 
 
 def get_acq_fn(
-    model: FixedNoiseGP, X_train: torch.Tensor, Y_train: torch.Tensor, method: Literal["parego", "ehvi"]
+    model: SingleTaskGP, X_train: torch.Tensor, Y_train: torch.Tensor, method: Literal["parego", "ehvi"]
 ) -> Union[ExpectedImprovement, ExpectedHypervolumeImprovement]:
     supported_methods = {"parego": get_parego, "ehvi": get_ehvi}
     for method_name, func in supported_methods.items():
