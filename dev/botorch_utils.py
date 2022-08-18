@@ -17,6 +17,9 @@ from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
 
 
+PAREGO, EHVI = "parego", "ehvi"
+
+
 def normalize(
     observations: Dict[str, np.ndarray],
     bounds: Dict[str, Tuple[float, float]],
