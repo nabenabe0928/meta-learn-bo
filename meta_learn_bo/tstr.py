@@ -6,8 +6,8 @@ import torch
 
 from fast_pareto import nondominated_rank
 
-from dev.botorch_utils import EHVI, PAREGO, sample
-from dev.base_weighted_gp import BaseWeightedGP
+from meta_learn_bo.base_weighted_gp import BaseWeightedGP
+from meta_learn_bo.utils import EHVI, PAREGO, sample
 
 
 class TwoStageTransferWithRanking(BaseWeightedGP):

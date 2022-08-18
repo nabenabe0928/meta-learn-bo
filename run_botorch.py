@@ -3,9 +3,9 @@ import warnings
 
 import numpy as np
 
-from dev.botorch_utils import optimize_acq_fn
-
-from dev.rgpe import RankingWeigtedGaussianProcessEnsemble
+from meta_learn_bo.rgpe import RankingWeigtedGaussianProcessEnsemble
+from meta_learn_bo.tstr import TwoStageTransferWithRanking
+from meta_learn_bo.utils import optimize_acq_fn
 
 
 warnings.filterwarnings("ignore")
@@ -59,10 +59,14 @@ def optimize(method: str = "parego"):
 
     n_init, max_evals = 10, 90
     observations = initial_sample(n_init=n_init, **kwargs)
-    rgpe = RankingWeigtedGaussianProcessEnsemble(
+    bo_method = [
+        RankingWeigtedGaussianProcessEnsemble,
+        TwoStageTransferWithRanking,
+    ][1]
+    rgpe = bo_method(
         init_data=observations,
         metadata={"src": initial_sample(n_init=50, **kwargs)},
-        n_samples=100,
+        # n_samples=100,
         max_evals=max_evals,
         hp_names=hp_names,
         method=method,

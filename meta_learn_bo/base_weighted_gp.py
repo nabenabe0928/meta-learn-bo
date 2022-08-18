@@ -10,8 +10,8 @@ import numpy as np
 
 import torch
 
-from dev.botorch_utils import EHVI, PAREGO, get_acq_fn, get_model_and_train_data
-from dev.taf import TransferAcquisitionFunction
+from meta_learn_bo.utils import EHVI, PAREGO, get_acq_fn, get_model_and_train_data
+from meta_learn_bo.taf import TransferAcquisitionFunction
 
 
 NumericType = Union[int, float]
