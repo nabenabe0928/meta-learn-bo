@@ -48,6 +48,7 @@ def denormalize(
 
 
 def sample(model: Union[SingleTaskGP, ModelListGP], X_train: torch.Tensor) -> torch.Tensor:
+    # predict returns the array with the shape of (batch, n_samples, n_objectives)
     with torch.no_grad():
         return model.posterior(X_train).sample()
 
