@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
@@ -46,6 +47,11 @@ def denormalize(
     }
 
 
+def sample(model: Union[SingleTaskGP, ModelListGP], X_train: torch.Tensor) -> torch.Tensor:
+    with torch.no_grad():
+        return model.posterior(X_train).sample()
+
+
 def scalarize(
     Y_train: torch.Tensor,
     weights: torch.Tensor,
@@ -87,13 +93,12 @@ def fit_model(
     X_train: torch.Tensor,
     Y_train: torch.Tensor,
     scalarize: bool = False,
+    state_dict: Optional[OrderedDict] = None,
 ) -> Union[ModelListGP, SingleTaskGP]:
 
     if scalarize:  # ParEGO
-        model = SingleTaskGP(train_X=X_train, train_Y=Y_train[:, None])
-        mll = ExactMarginalLogLikelihood(model.likelihood, model)
-        fit_gpytorch_model(mll)
-        return model
+        model = SingleTaskGP(train_X=X_train, train_Y=Y_train.squeeze()[:, None])
+        mll_cls = ExactMarginalLogLikelihood
     else:  # EHVI
         models: List[SingleTaskGP] = []
         for Y in Y_train:
@@ -101,10 +106,15 @@ def fit_model(
             models.append(_model)
 
         model = ModelListGP(*models)
-        mll = SumMarginalLogLikelihood(model.likelihood, model)
-        fit_gpytorch_model(mll)
+        mll_cls = SumMarginalLogLikelihood
 
-        return model
+    if state_dict is None:
+        mll = mll_cls(model.likelihood, model)
+        fit_gpytorch_model(mll)
+    else:
+        model.load_state_dict(state_dict)
+
+    return model
 
 
 def get_model_and_train_data(

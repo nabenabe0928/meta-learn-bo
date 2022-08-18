@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 from botorch.acquisition import ExpectedImprovement
@@ -11,10 +12,11 @@ import torch
 
 from fast_pareto import nondominated_rank
 
-from dev.botorch_utils import fit_model, get_acq_fn, get_model_and_train_data
+from dev.botorch_utils import fit_model, get_acq_fn, get_model_and_train_data, sample
 from dev.taf import TransferAcquisitionFunction
 
 
+PAREGO, EHVI = "parego", "ehvi"
 NumericType = Union[int, float]
 
 
@@ -36,16 +38,16 @@ def drop_ranking_loss(
     return ranking_loss
 
 
-def leave_one_out_ranks(X: torch.Tensor, Y: torch.Tensor) -> torch.Tensor:
+def leave_one_out_ranks(X: torch.Tensor, Y: torch.Tensor, scalarize: bool, state_dict: OrderedDict) -> torch.Tensor:
     n_samples = len(X)
     masks = torch.eye(n_samples, dtype=torch.bool)
     (n_obj, n_samples) = Y.shape
     loo_preds = np.zeros((n_samples, n_obj))
     for idx, mask in enumerate(masks):
         X_train, Y_train, x_test = X[~mask], Y[:, ~mask], X[mask]
-        loo_model = fit_model(X_train=X_train, Y_train=Y_train)
+        loo_model = fit_model(X_train=X_train, Y_train=Y_train, scalarize=scalarize, state_dict=state_dict)
         # predict returns the array with the shape of (batch, n_samples, n_objectives)
-        loo_preds[idx] = loo_model.posterior(x_test).sample()[0][0].numpy()
+        loo_preds[idx] = sample(loo_model, x_test)[0][0].numpy()
 
     return torch.tensor(nondominated_rank(costs=loo_preds, tie_break=True))
 
@@ -71,7 +73,7 @@ class RankingWeigtedGaussianProcessEnsemble:
         bounds: Dict[str, Tuple[float, float]],
         hp_names: List[str],
         minimize: Dict[str, bool],
-        method: Literal["parego", "ehvi"],
+        method: Literal[PAREGO, EHVI],
         target_task_name: str,
         max_evals: int,
         seed: Optional[int] = None,
@@ -114,12 +116,12 @@ class RankingWeigtedGaussianProcessEnsemble:
         for obj_name, val in results.items():
             self._observations[obj_name] = np.append(self._observations[obj_name], val)
 
-        retrain = (self._method == "parego")
+        retrain = self._method == PAREGO
         self._train(train_meta_model=retrain)
 
     def _sample_scalarization_weight(self) -> Optional[torch.Tensor]:
         weights = None
-        if self._method == "parego":
+        if self._method == PAREGO:
             weights = torch.as_tensor(self._rng.random(self._n_tasks), dtype=torch.float32)
             weights /= weights.sum()
 
@@ -161,7 +163,10 @@ class RankingWeigtedGaussianProcessEnsemble:
 
     def _bootstrap(self, ranks: torch.Tensor, X_train: torch.Tensor, Y_train: torch.Tensor) -> torch.Tensor:
         # n_samples --> number of bootstrap, n_evals --> number of target observations
-        loo_ranks = leave_one_out_ranks(X=X_train, Y=Y_train)
+        target_state_dict = self._base_models[self._target_task_name].state_dict()
+        loo_ranks = leave_one_out_ranks(
+            X=X_train, Y=Y_train, scalarize=self._method == PAREGO, state_dict=target_state_dict
+        )
         ranks = torch.vstack([ranks, loo_ranks])
         (n_tasks, n_evals) = ranks.shape
 
@@ -190,7 +195,7 @@ class RankingWeigtedGaussianProcessEnsemble:
         for idx, task_name in enumerate(self._task_names[:-1]):
             model = self._base_models[task_name]
             # flip the sign because larger is better in base models
-            rank = nondominated_rank(-model.posterior(X_train).sample()[0].numpy(), tie_break=True)
+            rank = nondominated_rank(-sample(model, X_train)[0].numpy(), tie_break=True)
             ranks[idx] = torch.as_tensor(rank)
 
         ranking_loss = self._bootstrap(ranks=ranks, X_train=X_train, Y_train=Y_train)

@@ -57,7 +57,7 @@ def optimize(method: str = "parego"):
     minimize: Dict[str, bool] = {"f1": True, "f2": True}
     kwargs = dict(hp_names=hp_names, minimize=minimize, bounds=bounds)
 
-    n_init, max_evals = 5, 10
+    n_init, max_evals = 10, 90
     observations = initial_sample(n_init=n_init, **kwargs)
     rgpe = RankingWeigtedGaussianProcessEnsemble(
         init_data=observations,
@@ -81,5 +81,5 @@ def optimize(method: str = "parego"):
 
 
 if __name__ == "__main__":
-    # optimize(method="ehvi")
-    optimize(method="parego")
+    optimize(method="ehvi")
+    # optimize(method="parego")
