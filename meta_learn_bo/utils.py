@@ -1,10 +1,6 @@
 from collections import OrderedDict
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
-import numpy as np
-
-import torch
-
 from botorch import fit_gpytorch_model
 from botorch.acquisition import ExpectedImprovement
 from botorch.acquisition.multi_objective import ExpectedHypervolumeImprovement
@@ -16,14 +12,19 @@ from botorch.utils.multi_objective.box_decompositions.non_dominated import FastN
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
 
+import numpy as np
+
+import torch
+
 
 PAREGO, EHVI = "parego", "ehvi"
+AcqFuncType = Literal["parego", "ehvi"]
 NumericType = Union[int, float]
 
 
 def normalize(
     observations: Dict[str, np.ndarray],
-    bounds: Dict[str, Tuple[float, float]],
+    bounds: Dict[str, Tuple[NumericType, NumericType]],
     hp_names: List[str],
 ) -> torch.Tensor:
     return torch.as_tensor(
@@ -38,7 +39,7 @@ def normalize(
 
 def denormalize(
     X: torch.Tensor,
-    bounds: Dict[str, Tuple[float, float]],
+    bounds: Dict[str, Tuple[NumericType, NumericType]],
     hp_names: List[str],
 ) -> Dict[str, float]:
     shape = (len(hp_names),)
@@ -46,7 +47,7 @@ def denormalize(
         raise ValueError(f"The shape of X must be {shape}, but got {X.shape}")
 
     return {
-        hp_name: X[idx] * (bounds[hp_name][1] - bounds[hp_name][0]) + bounds[hp_name][0]
+        hp_name: float(X[idx]) * (bounds[hp_name][1] - bounds[hp_name][0]) + bounds[hp_name][0]
         for idx, hp_name in enumerate(hp_names)
     }
 
@@ -66,12 +67,12 @@ def scalarize(
     # Y_train.shape = (n_obj, n_samples), Y_weighted.shape = (n_obj, n_samples)
     Y_weighted = Y_train * weights[:, None]
     # NOTE: since Y is "Larger is better", so we take min of Y_weighted
-    return torch.amin(Y_weighted, axis=0) + rho * torch.sum(Y_weighted, axis=0)
+    return torch.amin(Y_weighted, dim=0) + rho * torch.sum(Y_weighted, dim=0)
 
 
 def get_train_data(
     observations: Dict[str, np.ndarray],
-    bounds: Dict[str, Tuple[float, float]],
+    bounds: Dict[str, Tuple[NumericType, NumericType]],
     hp_names: List[str],
     minimize: Dict[str, bool],
     weights: Optional[torch.Tensor] = None,
@@ -84,13 +85,13 @@ def get_train_data(
         np.asarray([(1 - 2 * do_min) * observations[obj_name] for obj_name, do_min in minimize.items()])
     )
     if weights is None:
-        Y_mean = Y_train.mean(axis=-1)
-        Y_std = Y_train.std(axis=-1)
+        Y_mean = torch.mean(Y_train, dim=-1)
+        Y_std = torch.std(Y_train, dim=-1)
         return X_train, (Y_train - Y_mean[:, None]) / Y_std[:, None]
     else:  # scalarization
         Y_train = scalarize(Y_train=Y_train, weights=weights)
-        Y_mean = Y_train.mean()
-        Y_std = Y_train.std()
+        Y_mean = torch.mean(Y_train)
+        Y_std = torch.std(Y_train)
         return X_train, (Y_train - Y_mean) / Y_std
 
 
@@ -124,7 +125,7 @@ def fit_model(
 
 def get_model_and_train_data(
     observations: Dict[str, np.ndarray],
-    bounds: Dict[str, Tuple[float, float]],
+    bounds: Dict[str, Tuple[NumericType, NumericType]],
     hp_names: List[str],
     minimize: Dict[str, bool],
     weights: Optional[torch.Tensor] = None,
@@ -169,7 +170,7 @@ def get_ehvi(model: ModelListGP, X_train: torch.Tensor, Y_train: torch.Tensor) -
 
 
 def get_acq_fn(
-    model: SingleTaskGP, X_train: torch.Tensor, Y_train: torch.Tensor, acq_fn_type: Literal["parego", "ehvi"]
+    model: SingleTaskGP, X_train: torch.Tensor, Y_train: torch.Tensor, acq_fn_type: AcqFuncType
 ) -> Union[ExpectedImprovement, ExpectedHypervolumeImprovement]:
     supported_acq_fn_types = {"parego": get_parego, "ehvi": get_ehvi}
     for acq_fn_name, func in supported_acq_fn_types.items():
@@ -181,9 +182,9 @@ def get_acq_fn(
 
 def optimize_acq_fn(
     acq_fn: ExpectedHypervolumeImprovement,
-    bounds: Dict[str, Tuple[float, float]],
+    bounds: Dict[str, Tuple[NumericType, NumericType]],
     hp_names: List[str],
-) -> Dict[str, float]:
+) -> Dict[str, NumericType]:
     kwargs = dict(q=1, num_restarts=10, raw_samples=1 << 8, return_best_only=True)
     standard_bounds = torch.zeros((2, len(hp_names)))
     standard_bounds[1] = 1

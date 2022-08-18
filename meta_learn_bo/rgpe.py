@@ -1,14 +1,14 @@
 from collections import OrderedDict
-from typing import Dict, List, Literal, Optional, Tuple
-
-import numpy as np
-
-import torch
+from typing import Dict, List, Optional, Tuple
 
 from fast_pareto import nondominated_rank
 
 from meta_learn_bo.base_weighted_gp import BaseWeightedGP
-from meta_learn_bo.utils import EHVI, NumericType, PAREGO, fit_model, sample
+from meta_learn_bo.utils import AcqFuncType, NumericType, PAREGO, fit_model, sample
+
+import numpy as np
+
+import torch
 
 
 def drop_ranking_loss(
@@ -43,7 +43,7 @@ def drop_ranking_loss(
             with the probability of p_drop := 1 - p_keep.
     """
     (n_tasks, n_bootstraps) = ranking_loss.shape
-    better_than_target = torch.sum(ranking_loss[:-1] < ranking_loss[-1], axis=-1)
+    better_than_target = torch.sum(ranking_loss[:-1] < ranking_loss[-1], dim=-1)
     p_keep = (better_than_target / n_bootstraps) * (1 - n_evals / max_evals)
     p_keep = torch.hstack([p_keep, torch.tensor(1.0)])  # the target task will not be dropped.
 
@@ -114,10 +114,10 @@ def compute_rank_weights(ranking_loss: torch.Tensor) -> torch.Tensor:
             The task weights with the shape (n_tasks, ).
     """
     (n_tasks, n_bootstraps) = ranking_loss.shape
-    sample_wise_min = torch.amin(ranking_loss, axis=0)  # shape = (n_bootstraps, )
+    sample_wise_min = torch.amin(ranking_loss, dim=0)  # shape = (n_bootstraps, )
     best_counts = torch.zeros(n_tasks)
     best_task_masks = (ranking_loss == sample_wise_min).T  # shape = (n_bootstraps, n_tasks)
-    counts_of_best_in_sample = torch.sum(best_task_masks, axis=-1)  # shape = (n_bootstraps, )
+    counts_of_best_in_sample = torch.sum(best_task_masks, dim=-1)  # shape = (n_bootstraps, )
     for best_task_mask, count in zip(best_task_masks, counts_of_best_in_sample):
         best_counts[best_task_mask] += 1.0 / count
 
@@ -133,7 +133,7 @@ class RankingWeigtedGaussianProcessEnsemble(BaseWeightedGP):
         hp_names: List[str],
         minimize: Dict[str, bool],
         n_bootstraps: int = 1000,
-        acq_fn_type: Literal[PAREGO, EHVI] = EHVI,
+        acq_fn_type: AcqFuncType = "ehvi",
         target_task_name: str = "target_task",
         max_evals: int = 100,
         seed: Optional[int] = None,
@@ -230,11 +230,11 @@ class RankingWeigtedGaussianProcessEnsemble(BaseWeightedGP):
         ranking_loss = torch.zeros((n_tasks, self._n_bootstraps))
         ranking_loss[:-1] += torch.sum(
             (bs_preds[:-1, :, :, None] < bs_preds[:-1, :, None, :]) ^ (bs_targets[:, :, None] < bs_targets[:, None, :]),
-            axis=(2, 3),
+            dim=(2, 3),
         )
         ranking_loss[-1] += torch.sum(
             (bs_preds[-1, :, :, None] < bs_targets[:, None, :]) ^ (bs_targets[:, :, None] < bs_targets[:, None, :]),
-            axis=(1, 2),
+            dim=(1, 2),
         )
         return ranking_loss
 

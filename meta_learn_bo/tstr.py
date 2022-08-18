@@ -1,13 +1,13 @@
-from typing import Dict, List, Literal, Optional, Tuple
-
-import numpy as np
-
-import torch
+from typing import Dict, List, Optional, Tuple
 
 from fast_pareto import nondominated_rank
 
 from meta_learn_bo.base_weighted_gp import BaseWeightedGP
-from meta_learn_bo.utils import EHVI, NumericType, PAREGO, sample
+from meta_learn_bo.utils import AcqFuncType, NumericType, sample
+
+import numpy as np
+
+import torch
 
 
 class TwoStageTransferWithRanking(BaseWeightedGP):
@@ -18,7 +18,7 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
         bounds: Dict[str, Tuple[NumericType, NumericType]],
         hp_names: List[str],
         minimize: Dict[str, bool],
-        acq_fn_type: Literal[PAREGO, EHVI] = EHVI,
+        acq_fn_type: AcqFuncType = "ehvi",
         target_task_name: str = "target_task",
         max_evals: int = 100,
         bandwidth: float = 0.1,

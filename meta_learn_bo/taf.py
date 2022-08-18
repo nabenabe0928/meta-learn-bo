@@ -1,10 +1,10 @@
 from typing import List, Union
 
-import torch
-
 from botorch.acquisition import ExpectedImprovement
 from botorch.acquisition.multi_objective import ExpectedHypervolumeImprovement
 from botorch.acquisition.multi_objective.analytic import MultiObjectiveAnalyticAcquisitionFunction
+
+import torch
 
 
 EPS = 1e-8

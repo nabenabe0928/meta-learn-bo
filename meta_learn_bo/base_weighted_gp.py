@@ -1,17 +1,17 @@
 from abc import abstractmethod
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from botorch.acquisition import ExpectedImprovement
 from botorch.acquisition.multi_objective import ExpectedHypervolumeImprovement
 from botorch.models import SingleTaskGP
 from botorch.models.model_list_gp_regression import ModelListGP
 
+from meta_learn_bo.taf import TransferAcquisitionFunction
+from meta_learn_bo.utils import AcqFuncType, NumericType, PAREGO, get_acq_fn, get_model_and_train_data, get_train_data
+
 import numpy as np
 
 import torch
-
-from meta_learn_bo.utils import EHVI, NumericType, PAREGO, get_acq_fn, get_model_and_train_data, get_train_data
-from meta_learn_bo.taf import TransferAcquisitionFunction
 
 
 class BaseWeightedGP:
@@ -22,7 +22,7 @@ class BaseWeightedGP:
         bounds: Dict[str, Tuple[NumericType, NumericType]],
         hp_names: List[str],
         minimize: Dict[str, bool],
-        acq_fn_type: Literal[PAREGO, EHVI],
+        acq_fn_type: AcqFuncType,
         target_task_name: str,
         max_evals: int,
         seed: Optional[int] = None,
