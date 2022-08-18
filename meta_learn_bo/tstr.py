@@ -7,7 +7,7 @@ import torch
 from fast_pareto import nondominated_rank
 
 from meta_learn_bo.base_weighted_gp import BaseWeightedGP
-from meta_learn_bo.utils import EHVI, PAREGO, sample
+from meta_learn_bo.utils import EHVI, NumericType, PAREGO, sample
 
 
 class TwoStageTransferWithRanking(BaseWeightedGP):
@@ -15,15 +15,50 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
         self,
         init_data: Dict[str, np.ndarray],
         metadata: Dict[str, Dict[str, np.ndarray]],
-        bounds: Dict[str, Tuple[float, float]],
+        bounds: Dict[str, Tuple[NumericType, NumericType]],
         hp_names: List[str],
         minimize: Dict[str, bool],
-        method: Literal[PAREGO, EHVI],
-        target_task_name: str,
-        max_evals: int,
+        acq_fn_type: Literal[PAREGO, EHVI] = EHVI,
+        target_task_name: str = "target_task",
+        max_evals: int = 100,
         bandwidth: float = 0.1,
         seed: Optional[int] = None,
     ):
+        """Two-stage transfer surrogate with ranking from the paper:
+        "Scalable Gaussian process-based transfer surrogates for hyperparameter optimization"
+        https://link.springer.com/article/10.1007/s10994-017-5684-y
+
+        Args:
+            init_data (Dict[str, np.ndarray]):
+                The observations of the target task
+                sampled from the random sampling.
+                Dict[hp_name/obj_name, the array of the corresponding param].
+            metadata (Dict[str, Dict[str, np.ndarray]]):
+                The observations of the tasks to transfer.
+                Dict[task_name, Dict[hp_name/obj_name, the array of the corresponding param]].
+            bounds (Dict[str, Tuple[NumericType, NumericType]]):
+                The lower and upper bounds for each hyperparameter.
+                Dict[hp_name, Tuple[lower bound, upper bound]].
+            hp_names (List[str]):
+                The list of hyperparameter names.
+                List[hp_name].
+            bandwidth (float):
+                rho in the original paper.
+            minimize (Dict[str, bool]):
+                The direction of the optimization for each objective.
+                Dict[obj_name, whether to minimize or not].
+            acq_fn_type (Literal[PAREGO, EHVI]):
+                The acquisition function type.
+            target_task_name (str):
+                The name of the target task.
+            max_evals (int):
+                How many hyperparameter configurations to evaluate during the optimization.
+            seed (Optional[int]):
+                The random seed.
+
+        NOTE:
+            This implementation is exclusively for multi-objective optimization settings.
+        """
         self._bandwidth = bandwidth
         super().__init__(
             init_data=init_data,
@@ -31,13 +66,32 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
             bounds=bounds,
             hp_names=hp_names,
             minimize=minimize,
-            method=method,
+            acq_fn_type=acq_fn_type,
             target_task_name=target_task_name,
             max_evals=max_evals,
             seed=seed,
         )
 
     def _compute_rank_weights(self, X_train: torch.Tensor, Y_train: torch.Tensor) -> torch.Tensor:
+        """
+        Compute the rank weights based on Section 6.2 in the original paper.
+
+        Args:
+            X_train (torch.Tensor):
+                The training data used for the task weights.
+                In principle, this is the observations in the target task.
+                X_train.shape = (n_evals, dim).
+            Y_train (torch.Tensor):
+                The training data used for the task weights.
+                In principle, this is the observations in the target task.
+                Y_train.shape = (n_obj, n_evals).
+
+        Returns:
+            torch.Tensor:
+                The task weights.
+                The sum of the weights must be 1.
+                The shape is (n_tasks, ).
+        """
         n_evals = X_train.shape[0]
         if self._n_tasks == 1 or n_evals < 2:  # Not sufficient data points
             return torch.ones(self._n_tasks) / self._n_tasks

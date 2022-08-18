@@ -8,7 +8,7 @@ import torch
 from fast_pareto import nondominated_rank
 
 from meta_learn_bo.base_weighted_gp import BaseWeightedGP
-from meta_learn_bo.utils import EHVI, PAREGO, fit_model, sample
+from meta_learn_bo.utils import EHVI, NumericType, PAREGO, fit_model, sample
 
 
 def drop_ranking_loss(
@@ -17,10 +17,34 @@ def drop_ranking_loss(
     max_evals: int,
     rng: np.random.RandomState,
 ) -> torch.Tensor:
-    # ranking_loss.shape --> (n_tasks, n_samples)
-    (n_tasks, n_samples) = ranking_loss.shape
+    """
+    Drop some weights in meta tasks to prevent weight dilution
+    as described in Section 4.3 of the original paper.
+    The dropout rate is computed based on Eq. (9) in the original paper.
+
+    Args:
+        ranking_loss (torch.Tensor):
+            The ranking loss described in Eqs. (3),(4) of the original paper.
+            ranking_loss[-1] is for the target task
+            and ranking_loss[:-1] is for the meta tasks.
+            The shape is (n_tasks, n_bootstraps).
+        n_evals (int):
+            The number of config evaluations up to now.
+        max_evals (int):
+            The maximum number of evaluations during the optimization.
+            In other words, the budget of this optimization.
+        rng (np.random.RandomState):
+            The random number generator.
+
+    Returns:
+        ranking_loss (torch.Tensor):
+            The ranking loss after applied the weight dilution.
+            Basically, it drops the weights for some meta tasks
+            with the probability of p_drop := 1 - p_keep.
+    """
+    (n_tasks, n_bootstraps) = ranking_loss.shape
     better_than_target = torch.sum(ranking_loss[:-1] < ranking_loss[-1], axis=-1)
-    p_keep = (better_than_target / n_samples) * (1 - n_evals / max_evals)
+    p_keep = (better_than_target / n_bootstraps) * (1 - n_evals / max_evals)
     p_keep = torch.hstack([p_keep, torch.tensor(1.0)])  # the target task will not be dropped.
 
     rnd = torch.as_tensor(rng.random(n_tasks))
@@ -30,29 +54,74 @@ def drop_ranking_loss(
 
 
 def leave_one_out_ranks(X: torch.Tensor, Y: torch.Tensor, scalarize: bool, state_dict: OrderedDict) -> torch.Tensor:
-    n_samples = len(X)
-    masks = torch.eye(n_samples, dtype=torch.bool)
-    (n_obj, n_samples) = Y.shape
-    loo_preds = np.zeros((n_samples, n_obj))
+    """
+    Compute the ranking of each x in X using leave-one-out cross validation.
+    The computation is based on Eq. (4) in the original paper.
+    Since we assume multi-objective optimization settings, we use nondominated sort
+    to obtain the ranking of each configuration.
+
+    Args:
+        X (torch.Tensor):
+            The training data used for the task weights.
+            In principle, this is the observations in the target task.
+            X_train.shape = (n_evals, dim).
+        Y (torch.Tensor):
+            The training data used for the task weights.
+            In principle, this is the observations in the target task.
+            Y_train.shape = (n_obj, n_evals).
+
+    Returns:
+        ranks (torch.Tensor):
+            The ranking of each configuration using the nondominated sort.
+            The shape is (n_evals, ).
+
+    NOTE:
+        The nondominated sort follows the paper:
+            Techniques for Highly Multiobjective Optimisation: Some Nondominated Points are Better than Others
+
+        Furthermore, although we mostly followed the implementation in:
+        https://github.com/automl/transfer-hpo-framework/blob/main/rgpe/methods/rgpe.py
+        We also referred to the implementation in:
+        https://botorch.org/tutorials/meta_learning_with_rgpe
+        to check how we train Gaussian models, which is super expensive we always train them from scracth.
+        We use `load_state_dict` to speed up as in the BoTorch website.
+    """
+    (n_obj, n_evals) = Y.shape
+    masks = torch.eye(n_evals, dtype=torch.bool)
+    loo_preds = np.zeros((n_evals, n_obj))
     for idx, mask in enumerate(masks):
         X_train, Y_train, x_test = X[~mask], Y[:, ~mask], X[mask]
         loo_model = fit_model(X_train=X_train, Y_train=Y_train, scalarize=scalarize, state_dict=state_dict)
-        # predict returns the array with the shape of (batch, n_samples, n_objectives)
+        # predict returns the array with the shape of (batch, n_evals, n_objectives)
         loo_preds[idx] = sample(loo_model, x_test)[0][0].numpy()
 
     return torch.tensor(nondominated_rank(costs=loo_preds, tie_break=True))
 
 
 def compute_rank_weights(ranking_loss: torch.Tensor) -> torch.Tensor:
-    (n_tasks, n_samples) = ranking_loss.shape
-    sample_wise_min = torch.amin(ranking_loss, axis=0)  # shape = (n_samples, )
+    """
+    Compute the rank weights based on Eq. (5).
+
+    Args:
+        ranking_loss (torch.Tensor):
+            The ranking loss described in Eqs. (3),(4) of the original paper.
+            ranking_loss[-1] is for the target task
+            and ranking_loss[:-1] is for the meta tasks.
+            The shape is (n_tasks, n_bootstraps).
+
+    Returns:
+        task_weights (torch.Tensor):
+            The task weights with the shape (n_tasks, ).
+    """
+    (n_tasks, n_bootstraps) = ranking_loss.shape
+    sample_wise_min = torch.amin(ranking_loss, axis=0)  # shape = (n_bootstraps, )
     best_counts = torch.zeros(n_tasks)
-    best_task_masks = (ranking_loss == sample_wise_min).T  # shape = (n_samples, n_tasks)
-    counts_of_best_in_sample = torch.sum(best_task_masks, axis=-1)  # shape = (n_samples, )
+    best_task_masks = (ranking_loss == sample_wise_min).T  # shape = (n_bootstraps, n_tasks)
+    counts_of_best_in_sample = torch.sum(best_task_masks, axis=-1)  # shape = (n_bootstraps, )
     for best_task_mask, count in zip(best_task_masks, counts_of_best_in_sample):
         best_counts[best_task_mask] += 1.0 / count
 
-    return best_counts / n_samples
+    return best_counts / n_bootstraps
 
 
 class RankingWeigtedGaussianProcessEnsemble(BaseWeightedGP):
@@ -60,44 +129,105 @@ class RankingWeigtedGaussianProcessEnsemble(BaseWeightedGP):
         self,
         init_data: Dict[str, np.ndarray],
         metadata: Dict[str, Dict[str, np.ndarray]],
-        n_samples: int,
-        bounds: Dict[str, Tuple[float, float]],
+        bounds: Dict[str, Tuple[NumericType, NumericType]],
         hp_names: List[str],
         minimize: Dict[str, bool],
-        method: Literal[PAREGO, EHVI],
-        target_task_name: str,
-        max_evals: int,
+        n_bootstraps: int = 1000,
+        acq_fn_type: Literal[PAREGO, EHVI] = EHVI,
+        target_task_name: str = "target_task",
+        max_evals: int = 100,
         seed: Optional[int] = None,
     ):
+        """The default setting of the paper:
+        "Practical transfer learning for Bayesian optimization".
+        https://arxiv.org/abs/1802.02219 (Accessed on 18 Aug 2022).
 
-        self._n_samples = n_samples
+        We followed the implementations provided in:
+            * https://github.com/automl/transfer-hpo-framework/blob/main/rgpe/methods/rgpe.py
+            ==> The details of ranking loss computations follow this implementation.
+            * https://botorch.org/tutorials/meta_learning_with_rgpe
+            ==> The details of GP training follows this implementation.
+
+        Args:
+            init_data (Dict[str, np.ndarray]):
+                The observations of the target task
+                sampled from the random sampling.
+                Dict[hp_name/obj_name, the array of the corresponding param].
+            metadata (Dict[str, Dict[str, np.ndarray]]):
+                The observations of the tasks to transfer.
+                Dict[task_name, Dict[hp_name/obj_name, the array of the corresponding param]].
+            n_bootstraps (int):
+                The number of bootstraps.
+                For more details, see Algorithm 1 and Section 4.1 in the original paper.
+            bounds (Dict[str, Tuple[NumericType, NumericType]]):
+                The lower and upper bounds for each hyperparameter.
+                Dict[hp_name, Tuple[lower bound, upper bound]].
+            hp_names (List[str]):
+                The list of hyperparameter names.
+                List[hp_name].
+            minimize (Dict[str, bool]):
+                The direction of the optimization for each objective.
+                Dict[obj_name, whether to minimize or not].
+            acq_fn_type (Literal[PAREGO, EHVI]):
+                The acquisition function type.
+            target_task_name (str):
+                The name of the target task.
+            max_evals (int):
+                How many hyperparameter configurations to evaluate during the optimization.
+            seed (Optional[int]):
+                The random seed.
+
+        NOTE:
+            This implementation is exclusively for multi-objective optimization settings.
+        """
+        self._n_bootstraps = n_bootstraps
         super().__init__(
             init_data=init_data,
             metadata=metadata,
             bounds=bounds,
             hp_names=hp_names,
             minimize=minimize,
-            method=method,
+            acq_fn_type=acq_fn_type,
             target_task_name=target_task_name,
             max_evals=max_evals,
             seed=seed,
         )
 
     def _bootstrap(self, ranks: torch.Tensor, X_train: torch.Tensor, Y_train: torch.Tensor) -> torch.Tensor:
-        # n_samples --> number of bootstrap, n_evals --> number of target observations
+        """
+        Perform the bootstrapping described in Section 4.1 of the original paper.
+
+        Args:
+            ranks (torch.Tensor):
+            X_train (torch.Tensor):
+                The training data used for the task weights.
+                In principle, this is the observations in the target task.
+                X_train.shape = (n_evals, dim).
+            Y_train (torch.Tensor):
+                The training data used for the task weights.
+                In principle, this is the observations in the target task.
+                Y_train.shape = (n_obj, n_evals).
+
+        Returns:
+            ranking_loss (torch.Tensor):
+                The ranking loss described in Eqs. (3),(4) of the original paper.
+                ranking_loss[-1] is for the target task
+                and ranking_loss[:-1] is for the meta tasks.
+                The shape is (n_tasks, n_bootstraps).
+        """
         target_state_dict = self._base_models[self._target_task_name].state_dict()
         loo_ranks = leave_one_out_ranks(
-            X=X_train, Y=Y_train, scalarize=self._method == PAREGO, state_dict=target_state_dict
+            X=X_train, Y=Y_train, scalarize=self._acq_fn_type == PAREGO, state_dict=target_state_dict
         )
         ranks = torch.vstack([ranks, loo_ranks])
         (n_tasks, n_evals) = ranks.shape
 
-        bs_indices = self._rng.choice(n_evals, size=(self._n_samples, n_evals), replace=True)
-        bs_preds = torch.stack([r[bs_indices] for r in ranks])  # (n_tasks, n_samples, n_evals)
+        bs_indices = self._rng.choice(n_evals, size=(self._n_bootstraps, n_evals), replace=True)
+        bs_preds = torch.stack([r[bs_indices] for r in ranks])  # (n_tasks, n_bootstraps, n_evals)
         rank_target = nondominated_rank(Y_train.T.numpy(), tie_break=True)
-        bs_targets = torch.as_tensor(rank_target[bs_indices]).reshape((self._n_samples, n_evals))
+        bs_targets = torch.as_tensor(rank_target[bs_indices]).reshape((self._n_bootstraps, n_evals))
 
-        ranking_loss = torch.zeros((n_tasks, self._n_samples))
+        ranking_loss = torch.zeros((n_tasks, self._n_bootstraps))
         ranking_loss[:-1] += torch.sum(
             (bs_preds[:-1, :, :, None] < bs_preds[:-1, :, None, :]) ^ (bs_targets[:, :, None] < bs_targets[:, None, :]),
             axis=(2, 3),
@@ -109,6 +239,25 @@ class RankingWeigtedGaussianProcessEnsemble(BaseWeightedGP):
         return ranking_loss
 
     def _compute_rank_weights(self, X_train: torch.Tensor, Y_train: torch.Tensor) -> torch.Tensor:
+        """
+        Compute the rank weights based on Eq. (5) in Section 4.1. of the original paper.
+
+        Args:
+            X_train (torch.Tensor):
+                The training data used for the task weights.
+                In principle, this is the observations in the target task.
+                X_train.shape = (n_evals, dim).
+            Y_train (torch.Tensor):
+                The training data used for the task weights.
+                In principle, this is the observations in the target task.
+                Y_train.shape = (n_obj, n_evals).
+
+        Returns:
+            torch.Tensor:
+                The task weights.
+                The sum of the weights must be 1.
+                The shape is (n_tasks, ).
+        """
         if self._n_tasks == 1 or X_train.shape[0] < 3:  # Not sufficient data points
             return torch.ones(self._n_tasks) / self._n_tasks
 

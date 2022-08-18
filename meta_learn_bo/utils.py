@@ -18,6 +18,7 @@ from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
 
 
 PAREGO, EHVI = "parego", "ehvi"
+NumericType = Union[int, float]
 
 
 def normalize(
@@ -168,14 +169,14 @@ def get_ehvi(model: ModelListGP, X_train: torch.Tensor, Y_train: torch.Tensor) -
 
 
 def get_acq_fn(
-    model: SingleTaskGP, X_train: torch.Tensor, Y_train: torch.Tensor, method: Literal["parego", "ehvi"]
+    model: SingleTaskGP, X_train: torch.Tensor, Y_train: torch.Tensor, acq_fn_type: Literal["parego", "ehvi"]
 ) -> Union[ExpectedImprovement, ExpectedHypervolumeImprovement]:
-    supported_methods = {"parego": get_parego, "ehvi": get_ehvi}
-    for method_name, func in supported_methods.items():
-        if method_name == method:
+    supported_acq_fn_types = {"parego": get_parego, "ehvi": get_ehvi}
+    for acq_fn_name, func in supported_acq_fn_types.items():
+        if acq_fn_name == acq_fn_type:
             return func(model=model, X_train=X_train, Y_train=Y_train)
     else:
-        raise ValueError(f"method must be in {supported_methods}, but got {method}")
+        raise ValueError(f"acq_fn_type must be in {supported_acq_fn_types}, but got {acq_fn_type}")
 
 
 def optimize_acq_fn(
