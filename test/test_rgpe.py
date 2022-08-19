@@ -156,25 +156,79 @@ def test_compute_ranking_loss() -> None:
 
     For bootstrap, we use (preds vs targets) and (targets vs targets)
     For bootstrap 1 in the target task:
+        preds = [0, 1, 3, 2, 4]
+        targets = [0, 1, 2, 3, 4]
+        preds < targets
+        F(0/0) F(1/0) F(3/0) F(2/0) F(4/0)
+        T(0/1) F(1/1) F(3/1) F(2/1) F(4/1)
+        T(0/2) T(1/2) F(3/2) F(2/2) F(4/2)
+        T(0/3) T(1/3) F(3/3) T(2/3) F(4/3)
+        T(0/4) T(1/4) T(3/4) T(2/4) F(4/4)
+
+        targets vs targets
         F(0/0) F(1/0) F(2/0) F(3/0) F(4/0)
         T(0/1) F(1/1) F(2/1) F(3/1) F(4/1)
         T(0/2) T(1/2) F(2/2) F(3/2) F(4/2)
         T(0/3) T(1/3) T(2/3) F(3/3) F(4/3)
         T(0/4) T(1/4) T(2/4) T(3/4) F(4/4)
 
-        F(2/2) F(3/2) T(1/2) F(5/2) F(4/2)
-        T(2/3) F(3/3) T(1/3) F(5/3) F(4/3)
-        F(2/1) F(3/1) F(1/1) F(5/1) F(4/1)
-        T(2/5) T(3/5) T(1/5) F(5/5) T(4/5)
-        T(2/4) T(3/4) T(1/4) F(5/4) F(4/4)
+        ==> XOR (discordant info)
+        F(F/F) F(F/F) F(F/F) F(F/F) F(F/F)
+        F(T/T) F(F/F) F(F/F) F(F/F) F(F/F)
+        F(T/T) F(T/T) F(F/F) F(F/F) F(F/F)
+        F(T/T) F(T/T) T(F/T) T(T/F) F(F/F)
+        F(T/T) F(T/T) F(T/T) F(T/T) F(F/F)
+        => True (2)
+
+    For bootstrap 2 in the target task:
+        preds = [3, 2, 3, 2, 3]
+        targets = [2, 3, 2, 3, 2]
+        preds < targets
+        F(3/2) F(2/2) F(3/2) F(2/2) F(3/2)
+        F(3/3) T(2/3) F(3/3) T(2/3) F(3/3)
+        F(3/2) F(2/2) F(3/2) F(2/2) F(3/2)
+        F(3/3) T(2/3) F(3/3) T(2/3) F(3/3)
+        F(3/2) F(2/2) F(3/2) F(2/2) F(3/2)
+
+        targets vs targets
+        F(2/2) F(3/2) F(2/2) F(3/2) F(2/2)
+        T(2/3) F(3/3) T(2/3) F(3/3) T(2/3)
+        F(2/2) F(3/2) F(2/2) F(3/2) F(2/2)
+        T(2/3) F(3/3) T(2/3) F(3/3) T(2/3)
+        F(2/2) F(3/2) F(2/2) F(3/2) F(2/2)
 
         ==> XOR (discordant info)
-        F(F/F) F(F/F) T(F/T) F(F/F) F(F/F)
-        F(T/T) F(F/F) T(F/T) F(F/F) F(F/F)
-        T(T/F) T(T/F) F(F/F) F(F/F) F(F/F)
-        F(T/T) F(T/T) F(T/T) F(F/F) T(F/T)
-        F(T/T) F(T/T) F(T/T) T(T/F) F(F/F)
-        => True (6)
+        F(F/F) F(F/F) F(F/F) F(F/F) F(F/F)
+        T(F/T) T(T/F) T(F/T) T(T/F) T(F/T)
+        F(F/F) F(F/F) F(F/F) F(F/F) F(F/F)
+        T(F/T) T(T/F) T(F/T) T(T/F) T(F/T)
+        F(F/F) F(F/F) F(F/F) F(F/F) F(F/F)
+        => True (10)
+
+    For bootstrap 3 in the target task:
+        preds = [0, 3, 4, 3, 2]
+        targets = [0, 2, 4, 2, 3]
+        preds < targets
+        T(0/0) F(3/0) F(4/0) F(3/0) F(2/0)
+        T(0/2) F(3/2) F(4/2) F(3/2) F(2/2)
+        T(0/4) T(3/4) F(4/4) T(3/4) T(2/4)
+        T(0/2) F(3/2) F(4/2) F(3/2) F(2/2)
+        T(0/3) F(3/3) F(4/3) F(3/3) T(2/3)
+
+        targets vs targets
+        F(0/0) F(2/0) F(4/0) F(2/0) F(3/0)
+        T(0/2) F(2/2) F(4/2) F(2/2) F(3/2)
+        T(0/4) T(2/4) F(4/4) T(2/4) T(3/4)
+        T(0/2) F(2/2) F(4/2) F(2/2) F(3/2)
+        T(0/3) T(2/3) F(4/3) T(2/3) F(3/3)
+
+        ==> XOR (discordant info)
+        T(T/F) F(F/F) F(F/F) F(F/F) F(F/F)
+        F(T/T) F(F/F) F(F/F) F(F/F) F(F/F)
+        F(T/T) F(T/T) F(F/F) F(T/T) F(T/T)
+        F(T/T) F(F/F) F(F/F) F(F/F) F(F/F)
+        F(T/T) F(F/T) F(F/F) T(F/T) T(T/F)
+        => True (3)
     """
     rank_preds = torch.tensor(
         [
