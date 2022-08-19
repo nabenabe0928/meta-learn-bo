@@ -10,19 +10,22 @@ from utils import get_kwargs_and_observations
 
 
 def test_compute_rank_weights() -> None:
-    kwargs, observations = get_kwargs_and_observations(size=10)
-    metadata = {}
-    _, metadata["src20"] = get_kwargs_and_observations(size=20)
-    _, metadata["src30"] = get_kwargs_and_observations(size=30)
-    tstr = TwoStageTransferWithRanking(init_data=observations, metadata=metadata, **kwargs)
-    assert getattr(tstr, "_task_weights") is not None
-    assert torch.isclose(torch.sum(tstr._task_weights), torch.tensor(1.0))
+    for acq_fn_type in ["parego", "ehvi"]:
+        kwargs, observations = get_kwargs_and_observations(size=10)
+        kwargs.update(acq_fn_type=acq_fn_type)
+        metadata = {}
+        _, metadata["src20"] = get_kwargs_and_observations(size=20)
+        _, metadata["src30"] = get_kwargs_and_observations(size=30)
+        tstr = TwoStageTransferWithRanking(init_data=observations, metadata=metadata, **kwargs)
+        assert getattr(tstr, "_task_weights") is not None
+        assert torch.isclose(torch.sum(tstr._task_weights), torch.tensor(1.0))
 
-    kwargs, observations = get_kwargs_and_observations(size=10)
-    metadata = {}
-    tstr = TwoStageTransferWithRanking(init_data=observations, metadata=metadata, **kwargs)
-    assert getattr(tstr, "_task_weights") is not None
-    assert torch.allclose(tstr._task_weights, torch.ones(1))
+        kwargs, observations = get_kwargs_and_observations(size=10)
+        kwargs.update(acq_fn_type=acq_fn_type)
+        metadata = {}
+        tstr = TwoStageTransferWithRanking(init_data=observations, metadata=metadata, **kwargs)
+        assert getattr(tstr, "_task_weights") is not None
+        assert torch.allclose(tstr._task_weights, torch.ones(1))
 
 
 def test_compute_ranking_loss() -> None:

@@ -1,4 +1,4 @@
-from abc import abstractmethod
+from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from botorch.acquisition import ExpectedImprovement
@@ -14,7 +14,7 @@ import numpy as np
 import torch
 
 
-class BaseWeightedGP:
+class BaseWeightedGP(metaclass=ABCMeta):
     def __init__(
         self,
         init_data: Dict[str, np.ndarray],
@@ -145,7 +145,8 @@ class BaseWeightedGP:
         """
         weights = None
         if self._acq_fn_type == PAREGO:
-            weights = torch.as_tensor(self._rng.random(self._n_tasks), dtype=torch.float32)
+            n_obj = len(self._obj_names)
+            weights = torch.as_tensor(self._rng.random(n_obj), dtype=torch.float32)
             weights /= weights.sum()
 
         return weights
