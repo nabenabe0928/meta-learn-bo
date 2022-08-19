@@ -68,7 +68,8 @@ def test_forward_in_taf() -> None:
 
 
 def test_skip_small_weights_in_taf() -> None:
-    weights = torch.tensor([0.5, 0.5 - 1e-8, 1e-8])
+    EPS = 1e-12
+    weights = torch.tensor([0.5, 0.5 - EPS, EPS])
     X = torch.rand((10, 1, 2))
     acq_fn_list = []
     for i in range(1, 4):

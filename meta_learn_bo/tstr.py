@@ -10,15 +10,17 @@ import numpy as np
 import torch
 
 
-def compute_ranking_loss(rank_preds: torch.Tensor, rank_targets: torch.Tensor) -> torch.Tensor:
+def compute_ranking_loss(rank_preds: np.ndarray, rank_targets: np.ndarray, bandwidth: float) -> torch.Tensor:
     """
     Compute the rank weights based on the original paper.
 
     Args:
-        rank_preds (torch.Tensor):
+        rank_preds (np.ndarray):
             pass
-        rank_targets (torch.Tensor):
+        rank_targets (np.ndarray):
             pass
+        bandwidth (float):
+            rho in the original paper.
 
     Returns:
         ranking_loss (torch.Tensor):
@@ -26,7 +28,12 @@ def compute_ranking_loss(rank_preds: torch.Tensor, rank_targets: torch.Tensor) -
             It does not include the ranking loss for the target task unlike RGPE.
             The shape is (n_tasks - 1, n_evals, n_evals).
     """
-    return (rank_preds[:, :, np.newaxis] < rank_preds[:, np.newaxis, :]) ^ (rank_targets[:, np.newaxis] < rank_targets)
+    n_evals = rank_targets.shape[-1]
+    n_pairs = n_evals * (n_evals - 1)
+    discordant_info = (rank_preds[:, :, np.newaxis] < rank_preds[:, np.newaxis, :]) ^ (
+        rank_targets[:, np.newaxis] < rank_targets
+    )
+    return torch.as_tensor(np.sum(discordant_info, axis=(1, 2)) / (n_pairs * bandwidth))
 
 
 class TwoStageTransferWithRanking(BaseWeightedGP):
@@ -115,7 +122,6 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
         if self._n_tasks == 1 or n_evals < 2:  # Not sufficient data points
             return torch.ones(self._n_tasks) / self._n_tasks
 
-        n_pairs = n_evals * (n_evals - 1)
         # ranks.shape = (n_tasks - 1, n_evals)
         rank_preds = np.asarray(
             [
@@ -125,9 +131,8 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
             ]
         )
         rank_targets = nondominated_rank(Y_train.T.numpy(), tie_break=True)
-        ranking_loss = compute_ranking_loss(rank_preds=rank_preds, rank_targets=rank_targets)
-        ts = torch.as_tensor(np.sum(ranking_loss, axis=(1, 2)) / (n_pairs * self._bandwidth))
-        ts = torch.minimum(ts, torch.tensor(1.0))
+        ranking_loss = compute_ranking_loss(rank_preds=rank_preds, rank_targets=rank_targets, bandwidth=self._bandwidth)
+        ts = torch.minimum(ranking_loss, torch.tensor(1.0))
 
         weights = torch.ones(self._n_tasks) * 0.75
         weights[:-1] *= 1 - ts**2
