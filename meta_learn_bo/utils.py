@@ -5,6 +5,7 @@ from botorch import fit_gpytorch_model
 from botorch.acquisition import ExpectedImprovement
 from botorch.acquisition.multi_objective import ExpectedHypervolumeImprovement
 from botorch.models import SingleTaskGP
+from botorch.models.gp_regression_mixed import MixedSingleTaskGP
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.optim.optimize import optimize_acqf
 from botorch.utils.multi_objective.box_decompositions.non_dominated import FastNondominatedPartitioning
@@ -20,6 +21,8 @@ import torch
 PAREGO, EHVI = "parego", "ehvi"
 AcqFuncType = Literal["parego", "ehvi"]
 NumericType = Union[int, float]
+SingleTaskGPType = Union[SingleTaskGP, MixedSingleTaskGP]
+ModelType = Union[SingleTaskGP, MixedSingleTaskGP, ModelListGP]
 
 
 def validate_weights(weights: torch.Tensor) -> None:
@@ -97,12 +100,12 @@ def denormalize(
     }
 
 
-def sample(model: Union[SingleTaskGP, ModelListGP], X: torch.Tensor) -> torch.Tensor:
+def sample(model: ModelType, X: torch.Tensor) -> torch.Tensor:
     """
     Sample from the posterior based on the model given X.
 
     Args:
-        model (Union[ModelListGP, SingleTaskGP]):
+        model (ModelType):
             The Gaussian process model trained on the provided dataset.
         X (torch.Tensor):
             The feature tensor with the shape of (n_samples, dim) that takes as a condition.
@@ -205,9 +208,10 @@ def get_train_data(
 def fit_model(
     X_train: torch.Tensor,
     Y_train: torch.Tensor,
+    cat_dims: List[int],
     scalarize: bool = False,
     state_dict: Optional[OrderedDict] = None,
-) -> Union[ModelListGP, SingleTaskGP]:
+) -> ModelType:
     """
     Fit Gaussian process model on the provided data.
 
@@ -220,6 +224,8 @@ def fit_model(
             Note that this tensor is preprocessed so that
             `larger is better` for the BoTorch internal implementation.
             Y_train.shape = (n_obj, n_evals).
+        cat_dims (List[int]):
+            The indices of the categorical parameters.
         scalarize (bool):
             Whether to use the scalarization or not.
         state_dict (Optional[OrderedDict]):
@@ -227,16 +233,18 @@ def fit_model(
             This is used for leave-one-out cross validation.
 
     Returns:
-        model (Union[ModelListGP, SingleTaskGP]):
+        model (ModelType):
             The Gaussian process model trained on the provided dataset.
     """
+    gp_cls = SingleTaskGP if len(cat_dims) == 0 else MixedSingleTaskGP
+    kwargs = dict() if len(cat_dims) == 0 else dict(cat_dims=cat_dims)
     if scalarize:  # ParEGO
-        model = SingleTaskGP(train_X=X_train, train_Y=Y_train.squeeze()[:, None])
+        model = gp_cls(train_X=X_train, train_Y=Y_train.squeeze()[:, None], **kwargs)
         mll_cls = ExactMarginalLogLikelihood
     else:  # EHVI
-        models: List[SingleTaskGP] = []
+        models: List[SingleTaskGPType] = []
         for Y in Y_train:
-            _model = SingleTaskGP(train_X=X_train, train_Y=Y[:, None])
+            _model = gp_cls(train_X=X_train, train_Y=Y[:, None], **kwargs)
             models.append(_model)
 
         model = ModelListGP(*models)
@@ -256,33 +264,32 @@ def get_model_and_train_data(
     bounds: Dict[str, Tuple[NumericType, NumericType]],
     hp_names: List[str],
     minimize: Dict[str, bool],
+    cat_dims: List[int],
     weights: Optional[torch.Tensor] = None,
-) -> Tuple[Union[SingleTaskGP, ModelListGP], torch.Tensor, torch.Tensor]:
+) -> Tuple[ModelType, torch.Tensor, torch.Tensor]:
+    kwargs = dict(
+        observations=observations,
+        bounds=bounds,
+        hp_names=hp_names,
+        minimize=minimize,
+        weights=weights,
+    )
+    scalarize = (weights is not None)
     if weights is not None:
         validate_weights(weights)
-        X_train, Y_train = get_train_data(
-            observations=observations,
-            bounds=bounds,
-            hp_names=hp_names,
-            minimize=minimize,
-            weights=weights,
-        )
-        model = fit_model(X_train=X_train, Y_train=Y_train, scalarize=True)
-    else:
-        X_train, Y_train = get_train_data(
-            observations=observations, bounds=bounds, hp_names=hp_names, minimize=minimize
-        )
-        model = fit_model(X_train=X_train, Y_train=Y_train)
+
+    X_train, Y_train = get_train_data(**kwargs)
+    model = fit_model(X_train=X_train, Y_train=Y_train, cat_dims=cat_dims, scalarize=scalarize)
 
     return model, X_train, Y_train
 
 
-def get_parego(model: SingleTaskGP, X_train: torch.Tensor, Y_train: torch.Tensor) -> ExpectedImprovement:
+def get_parego(model: SingleTaskGPType, X_train: torch.Tensor, Y_train: torch.Tensor) -> ExpectedImprovement:
     """
     Get the ParEGO acquisition funciton.
 
     Args:
-        model (SingleTaskGP):
+        model (SingleTaskGPType):
             The Gaussian process model trained on the provided dataset.
         X_train (torch.Tensor):
             The preprocessed hyperparameter configurations tensor.
@@ -336,13 +343,13 @@ def get_ehvi(model: ModelListGP, X_train: torch.Tensor, Y_train: torch.Tensor) -
 
 
 def get_acq_fn(
-    model: Union[ModelListGP, SingleTaskGP], X_train: torch.Tensor, Y_train: torch.Tensor, acq_fn_type: AcqFuncType
+    model: ModelType, X_train: torch.Tensor, Y_train: torch.Tensor, acq_fn_type: AcqFuncType
 ) -> Union[ExpectedImprovement, ExpectedHypervolumeImprovement]:
     """
     Get the specified acquisition funciton.
 
     Args:
-        model (Union[ModelListGP, SingleTaskGP]):
+        model (ModelType):
             The Gaussian process model trained on the provided dataset.
         X_train (torch.Tensor):
             The preprocessed hyperparameter configurations tensor.

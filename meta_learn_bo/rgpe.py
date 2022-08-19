@@ -53,7 +53,9 @@ def drop_ranking_loss(
     return ranking_loss
 
 
-def leave_one_out_ranks(X: torch.Tensor, Y: torch.Tensor, scalarize: bool, state_dict: OrderedDict) -> torch.Tensor:
+def leave_one_out_ranks(
+    X: torch.Tensor, Y: torch.Tensor, cat_dims: List[int], scalarize: bool, state_dict: OrderedDict
+) -> torch.Tensor:
     """
     Compute the ranking of each x in X using leave-one-out cross validation.
     The computation is based on Eq. (4) in the original paper.
@@ -69,6 +71,8 @@ def leave_one_out_ranks(X: torch.Tensor, Y: torch.Tensor, scalarize: bool, state
             The training data used for the task weights.
             In principle, this is the observations in the target task.
             Y_train.shape = (n_obj, n_evals).
+        cat_dims (List[int]):
+            The indices of the categorical parameters.
 
     Returns:
         ranks (torch.Tensor):
@@ -91,7 +95,9 @@ def leave_one_out_ranks(X: torch.Tensor, Y: torch.Tensor, scalarize: bool, state
     loo_preds = np.zeros((n_evals, n_obj))
     for idx, mask in enumerate(masks):
         X_train, Y_train, x_test = X[~mask], Y[:, ~mask], X[mask]
-        loo_model = fit_model(X_train=X_train, Y_train=Y_train, scalarize=scalarize, state_dict=state_dict)
+        loo_model = fit_model(
+            X_train=X_train, Y_train=Y_train, cat_dims=cat_dims, scalarize=scalarize, state_dict=state_dict
+        )
         # predict returns the array with the shape of (batch, n_evals, n_objectives)
         loo_preds[idx] = sample(loo_model, x_test)[0][0].numpy()
 
@@ -172,6 +178,7 @@ class RankingWeigtedGaussianProcessEnsemble(BaseWeightedGP):
         metadata: Dict[str, Dict[str, np.ndarray]],
         bounds: Dict[str, Tuple[NumericType, NumericType]],
         hp_names: List[str],
+        is_categoricals: Dict[str, bool],
         minimize: Dict[str, bool],
         n_bootstraps: int = 1000,
         acq_fn_type: AcqFuncType = "ehvi",
@@ -206,6 +213,8 @@ class RankingWeigtedGaussianProcessEnsemble(BaseWeightedGP):
             hp_names (List[str]):
                 The list of hyperparameter names.
                 List[hp_name].
+            is_categoricals (Dict[str, bool]):
+                Whether the given hyperparameter is categorical.
             minimize (Dict[str, bool]):
                 The direction of the optimization for each objective.
                 Dict[obj_name, whether to minimize or not].
@@ -227,6 +236,7 @@ class RankingWeigtedGaussianProcessEnsemble(BaseWeightedGP):
             metadata=metadata,
             bounds=bounds,
             hp_names=hp_names,
+            is_categoricals=is_categoricals,
             minimize=minimize,
             acq_fn_type=acq_fn_type,
             target_task_name=target_task_name,
@@ -258,7 +268,11 @@ class RankingWeigtedGaussianProcessEnsemble(BaseWeightedGP):
         """
         target_state_dict = self._base_models[self._target_task_name].state_dict()
         loo_ranks = leave_one_out_ranks(
-            X=X_train, Y=Y_train, scalarize=self._acq_fn_type == PAREGO, state_dict=target_state_dict
+            X=X_train,
+            Y=Y_train,
+            cat_dims=self._cat_dims,
+            scalarize=self._acq_fn_type == PAREGO,
+            state_dict=target_state_dict,
         )
         rank_preds = torch.vstack([ranks, loo_ranks])
         rank_targets = nondominated_rank(Y_train.T.numpy(), tie_break=True)

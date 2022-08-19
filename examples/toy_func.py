@@ -7,7 +7,8 @@ def get_toy_func_info() -> Dict[str, Any]:
     hp_names: List[str] = ["x0", "x1"]
     bounds: Dict[str, Tuple[float, float]] = {"x0": (-5, 5), "x1": (-5, 5)}
     minimize: Dict[str, bool] = {"f1": True, "f2": True}
-    kwargs = dict(hp_names=hp_names, minimize=minimize, bounds=bounds)
+    is_categoricals = {"x0": False, "x1": False}
+    kwargs = dict(hp_names=hp_names, minimize=minimize, bounds=bounds, is_categoricals=is_categoricals)
     return kwargs
 
 

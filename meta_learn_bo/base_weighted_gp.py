@@ -29,6 +29,7 @@ class BaseWeightedGP(metaclass=ABCMeta):
         metadata: Dict[str, Dict[str, np.ndarray]],
         bounds: Dict[str, Tuple[NumericType, NumericType]],
         hp_names: List[str],
+        is_categoricals: Dict[str, bool],
         minimize: Dict[str, bool],
         acq_fn_type: AcqFuncType,
         target_task_name: str,
@@ -52,6 +53,8 @@ class BaseWeightedGP(metaclass=ABCMeta):
             hp_names (List[str]):
                 The list of hyperparameter names.
                 List[hp_name].
+            is_categoricals (Dict[str, bool]):
+                Whether the given hyperparameter is categorical.
             minimize (Dict[str, bool]):
                 The direction of the optimization for each objective.
                 Dict[obj_name, whether to minimize or not].
@@ -77,6 +80,7 @@ class BaseWeightedGP(metaclass=ABCMeta):
         self._bounds = bounds
         self._max_evals = max_evals
         self._hp_names = hp_names
+        self._cat_dims = [idx for idx, hp_name in enumerate(hp_names) if is_categoricals[hp_name]]
         self._minimize = minimize
         self._obj_names = list(minimize.keys())
         self._observations: Dict[str, np.ndarray] = init_data
@@ -176,6 +180,7 @@ class BaseWeightedGP(metaclass=ABCMeta):
             bounds=self._bounds,
             hp_names=self._hp_names,
             minimize=self._minimize,
+            cat_dims=self._cat_dims,
             weights=self._sample_scalarization_weight(),
         )
 
@@ -216,6 +221,7 @@ class BaseWeightedGP(metaclass=ABCMeta):
             kwargs_for_model (Dict[str, Any]):
                 The keyword arguments for the data preprocessing.
         """
+        kwargs_for_model.pop("cat_dims")
         X_train, Y_train = get_train_data(self._observations, **kwargs_for_model)
         Y_train = Y_train[None, :] if len(Y_train.shape) == 1 else Y_train
         # flip the sign because larger is better in Y_train

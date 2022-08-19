@@ -45,6 +45,7 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
         metadata: Dict[str, Dict[str, np.ndarray]],
         bounds: Dict[str, Tuple[NumericType, NumericType]],
         hp_names: List[str],
+        is_categoricals: Dict[str, bool],
         minimize: Dict[str, bool],
         acq_fn_type: AcqFuncType = "ehvi",
         target_task_name: str = "target_task",
@@ -70,6 +71,8 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
             hp_names (List[str]):
                 The list of hyperparameter names.
                 List[hp_name].
+            is_categoricals (Dict[str, bool]):
+                Whether the given hyperparameter is categorical.
             bandwidth (float):
                 rho in the original paper.
             minimize (Dict[str, bool]):
@@ -93,6 +96,7 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
             metadata=metadata,
             bounds=bounds,
             hp_names=hp_names,
+            is_categoricals=is_categoricals,
             minimize=minimize,
             acq_fn_type=acq_fn_type,
             target_task_name=target_task_name,
