@@ -4,7 +4,7 @@ import pytest
 
 from meta_learn_bo.rgpe import RankingWeigtedGaussianProcessEnsemble
 from meta_learn_bo.taf import TransferAcquisitionFunction
-from meta_learn_bo.utils import get_train_data, optimize_acq_fn
+from meta_learn_bo.utils import get_train_data
 
 import torch
 
@@ -65,7 +65,7 @@ def test_update():
             model = rgpe._base_models[rgpe._task_names[0]]
             pred_old = model.posterior(X_train).mean
 
-        eval_config = optimize_acq_fn(acq_fn=rgpe.acq_fn, bounds=kwargs["bounds"], hp_names=kwargs["hp_names"])
+        eval_config = rgpe.optimize_acq_fn()
         results = obj_func(eval_config)
         rgpe.update(eval_config=eval_config, results=results)
         assert rgpe.observations[rgpe._hp_names[0]].size == n_init + 1

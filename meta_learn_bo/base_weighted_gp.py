@@ -7,7 +7,15 @@ from botorch.models import SingleTaskGP
 from botorch.models.model_list_gp_regression import ModelListGP
 
 from meta_learn_bo.taf import TransferAcquisitionFunction
-from meta_learn_bo.utils import AcqFuncType, NumericType, PAREGO, get_acq_fn, get_model_and_train_data, get_train_data
+from meta_learn_bo.utils import (
+    AcqFuncType,
+    NumericType,
+    PAREGO,
+    get_acq_fn,
+    get_model_and_train_data,
+    get_train_data,
+    optimize_acq_fn,
+)
 
 import numpy as np
 
@@ -111,6 +119,9 @@ class BaseWeightedGP(metaclass=ABCMeta):
     def _task_weights_repr(self) -> str:
         ws = ", ".join([f"{name}: {float(w):.3f}" for name, w in zip(self._task_names, self._task_weights)])
         return f"task weights = ({ws})"
+
+    def optimize_acq_fn(self) -> Dict[str, NumericType]:
+        return optimize_acq_fn(acq_fn=self.acq_fn, bounds=self._bounds, hp_names=self._hp_names)
 
     def update(self, eval_config: Dict[str, NumericType], results: Dict[str, float]) -> None:
         """

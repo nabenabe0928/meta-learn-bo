@@ -3,7 +3,6 @@ import warnings
 from meta_learn_bo import (
     RankingWeigtedGaussianProcessEnsemble,
     TwoStageTransferWithRanking,
-    optimize_acq_fn,
 )
 
 from examples.toy_func import get_initial_samples, get_toy_func_info, toy_func
@@ -30,7 +29,7 @@ def optimize(acq_fn_type: str = "parego", rank_weight_type: str = "rgpe") -> Non
     )
 
     for t in range(max_evals - n_init):
-        eval_config = optimize_acq_fn(acq_fn=model.acq_fn, bounds=model._bounds, hp_names=model._hp_names)
+        eval_config = model.optimize_acq_fn()
         results = toy_func(eval_config)
         model.update(eval_config=eval_config, results=results)
         print(f"Iteration {t + 1}: ", eval_config, results)

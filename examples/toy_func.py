@@ -21,10 +21,7 @@ def toy_func(eval_config: Dict[str, float]) -> Dict[str, float]:
 def get_initial_samples(n_init: int) -> Dict[str, np.ndarray]:
     observations = {name: np.array([]) for name in ["x0", "x1", "f1", "f2"]}
     for _ in range(n_init):
-        eval_config = {
-            "x0": np.random.random() * 10 - 5,
-            "x1": np.random.random() * 10 - 5
-        }
+        eval_config = {"x0": np.random.random() * 10 - 5, "x1": np.random.random() * 10 - 5}
         eval_config.update(toy_func(eval_config))
         for key, val in eval_config.items():
             observations[key] = np.append(observations[key], val)
