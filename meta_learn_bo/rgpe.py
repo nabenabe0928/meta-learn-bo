@@ -46,7 +46,6 @@ def drop_ranking_loss(
     better_than_target = torch.sum(ranking_loss[:-1] < ranking_loss[-1], dim=-1)
     p_keep = (better_than_target / n_bootstraps) * (1 - n_evals / max_evals)
     p_keep = torch.hstack([p_keep, torch.tensor(1.0)])  # the target task will not be dropped.
-    print(better_than_target)
 
     rnd = torch.as_tensor(rng.random(n_tasks))
     # if rand > p_keep --> drop

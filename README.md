@@ -19,3 +19,9 @@ Optionally, you can create a new conda environment and run the following:
 ```shell
 $ pip install -r requirements.txt
 ```
+
+You can test by:
+
+```shell
+$ python -m examples.example_toy_func
+```
