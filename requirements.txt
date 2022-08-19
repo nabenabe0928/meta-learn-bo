@@ -1,1 +1,5 @@
-smac==1.4.0
+botorch
+gpytorch
+torch
+numpy
+fast_pareto
