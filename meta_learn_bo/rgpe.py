@@ -124,6 +124,42 @@ def compute_rank_weights(ranking_loss: torch.Tensor) -> torch.Tensor:
     return best_counts / n_bootstraps
 
 
+def compute_ranking_loss(rank_preds: torch.Tensor, rank_targets: torch.Tensor, bs_indices: np.ndarray) -> torch.Tensor:
+    """
+    Compute the rank weights based on Eqs. (3),(4).
+
+    Args:
+        rank_preds (torch.Tensor):
+            pass
+        rank_targets (torch.Tensor):
+            pass
+        bs_indices (np.ndarray):
+            pass
+
+    Returns:
+        ranking_loss (torch.Tensor):
+            The ranking loss described in Eqs. (3),(4) of the original paper.
+            ranking_loss[-1] is for the target task
+            and ranking_loss[:-1] is for the meta tasks.
+            The shape is (n_tasks, n_bootstraps).
+    """
+    n_tasks = rank_preds.shape[0]
+    (n_bootstraps, n_evals) = bs_indices.shape
+    bs_preds = torch.stack([r[bs_indices] for r in rank_preds])  # (n_tasks, n_bootstraps, n_evals)
+    bs_targets = torch.as_tensor(rank_targets[bs_indices]).reshape((n_bootstraps, n_evals))
+
+    ranking_loss = torch.zeros((n_tasks, n_bootstraps))
+    ranking_loss[:-1] += torch.sum(
+        (bs_preds[:-1, :, :, None] < bs_preds[:-1, :, None, :]) ^ (bs_targets[:, :, None] < bs_targets[:, None, :]),
+        dim=(2, 3),
+    )
+    ranking_loss[-1] += torch.sum(
+        (bs_preds[-1, :, :, None] < bs_targets[:, None, :]) ^ (bs_targets[:, :, None] < bs_targets[:, None, :]),
+        dim=(1, 2),
+    )
+    return ranking_loss
+
+
 class RankingWeigtedGaussianProcessEnsemble(BaseWeightedGP):
     def __init__(
         self,
@@ -219,24 +255,12 @@ class RankingWeigtedGaussianProcessEnsemble(BaseWeightedGP):
         loo_ranks = leave_one_out_ranks(
             X=X_train, Y=Y_train, scalarize=self._acq_fn_type == PAREGO, state_dict=target_state_dict
         )
-        ranks = torch.vstack([ranks, loo_ranks])
+        rank_preds = torch.vstack([ranks, loo_ranks])
+        rank_targets = nondominated_rank(Y_train.T.numpy(), tie_break=True)
         (n_tasks, n_evals) = ranks.shape
-
         bs_indices = self._rng.choice(n_evals, size=(self._n_bootstraps, n_evals), replace=True)
-        bs_preds = torch.stack([r[bs_indices] for r in ranks])  # (n_tasks, n_bootstraps, n_evals)
-        rank_target = nondominated_rank(Y_train.T.numpy(), tie_break=True)
-        bs_targets = torch.as_tensor(rank_target[bs_indices]).reshape((self._n_bootstraps, n_evals))
 
-        ranking_loss = torch.zeros((n_tasks, self._n_bootstraps))
-        ranking_loss[:-1] += torch.sum(
-            (bs_preds[:-1, :, :, None] < bs_preds[:-1, :, None, :]) ^ (bs_targets[:, :, None] < bs_targets[:, None, :]),
-            dim=(2, 3),
-        )
-        ranking_loss[-1] += torch.sum(
-            (bs_preds[-1, :, :, None] < bs_targets[:, None, :]) ^ (bs_targets[:, :, None] < bs_targets[:, None, :]),
-            dim=(1, 2),
-        )
-        return ranking_loss
+        return compute_ranking_loss(rank_preds=rank_preds, rank_targets=rank_targets, bs_indices=bs_indices)
 
     def _compute_rank_weights(self, X_train: torch.Tensor, Y_train: torch.Tensor) -> torch.Tensor:
         """

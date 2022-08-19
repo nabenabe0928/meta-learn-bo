@@ -10,6 +10,25 @@ import numpy as np
 import torch
 
 
+def compute_ranking_loss(rank_preds: torch.Tensor, rank_targets: torch.Tensor) -> torch.Tensor:
+    """
+    Compute the rank weights based on the original paper.
+
+    Args:
+        rank_preds (torch.Tensor):
+            pass
+        rank_targets (torch.Tensor):
+            pass
+
+    Returns:
+        ranking_loss (torch.Tensor):
+            The ranking loss described in the original paper.
+            It does not include the ranking loss for the target task unlike RGPE.
+            The shape is (n_tasks - 1, n_evals, n_evals).
+    """
+    return (rank_preds[:, :, np.newaxis] < rank_preds[:, np.newaxis, :]) ^ (rank_targets[:, np.newaxis] < rank_targets)
+
+
 class TwoStageTransferWithRanking(BaseWeightedGP):
     def __init__(
         self,
@@ -98,16 +117,16 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
 
         n_pairs = n_evals * (n_evals - 1)
         # ranks.shape = (n_tasks - 1, n_evals)
-        ranks = np.asarray(
+        rank_preds = np.asarray(
             [
                 # flip the sign because larger is better in base models
                 nondominated_rank(-sample(self._base_models[task_name], X_train)[0].numpy(), tie_break=True)
                 for task_name in self._task_names[:-1]
             ]
         )
-        target = nondominated_rank(Y_train.T.numpy(), tie_break=True)
-        discordant_info = (ranks[:, :, np.newaxis] < ranks[:, np.newaxis, :]) ^ (target[:, np.newaxis] < target)
-        ts = torch.as_tensor(np.sum(discordant_info, axis=(1, 2)) / (n_pairs * self._bandwidth))
+        rank_targets = nondominated_rank(Y_train.T.numpy(), tie_break=True)
+        ranking_loss = compute_ranking_loss(rank_preds=rank_preds, rank_targets=rank_targets)
+        ts = torch.as_tensor(np.sum(ranking_loss, axis=(1, 2)) / (n_pairs * self._bandwidth))
         ts = torch.minimum(ts, torch.tensor(1.0))
 
         weights = torch.ones(self._n_tasks) * 0.75
