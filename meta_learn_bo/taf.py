@@ -4,6 +4,8 @@ from botorch.acquisition import ExpectedImprovement
 from botorch.acquisition.multi_objective import ExpectedHypervolumeImprovement
 from botorch.acquisition.multi_objective.analytic import MultiObjectiveAnalyticAcquisitionFunction
 
+from meta_learn_bo.utils import validate_weights
+
 import torch
 
 
@@ -30,8 +32,7 @@ class TransferAcquisitionFunction(MultiObjectiveAnalyticAcquisitionFunction):
         self._validate_input()
 
     def _validate_input(self) -> None:
-        if not torch.isclose(self._weights.sum(), torch.tensor(1.0)):
-            raise ValueError(f"The sum of the task weights must be 1, but got {self._weights}")
+        validate_weights(self._weights)
         acq_fn_cls = type(self._acq_fn_list[0])
         if not all(isinstance(acq_fn, acq_fn_cls) for acq_fn in self._acq_fn_list):
             raise TypeError(f"All acquisition function must be the class {acq_fn_cls}")

@@ -22,11 +22,34 @@ AcqFuncType = Literal["parego", "ehvi"]
 NumericType = Union[int, float]
 
 
+def validate_weights(weights: torch.Tensor) -> None:
+    if not torch.isclose(weights.sum(), torch.tensor(1.0)):
+        raise ValueError(f"The sum of the weights must be 1, but got {weights}")
+
+
 def normalize(
     observations: Dict[str, np.ndarray],
     bounds: Dict[str, Tuple[NumericType, NumericType]],
     hp_names: List[str],
 ) -> torch.Tensor:
+    """
+    Normalize the feature tensor so that each dimension is in [0, 1].
+
+    Args:
+        observations (Dict[str, np.ndarray]):
+            The observations.
+            Dict[hp_name/obj_name, the array of the corresponding param].
+        bounds (Dict[str, Tuple[NumericType, NumericType]]):
+            The lower and upper bounds for each hyperparameter.
+            Dict[hp_name, Tuple[lower bound, upper bound]].
+        hp_names (List[str]):
+            The list of hyperparameter names.
+            List[hp_name].
+
+    Returns:
+        X (torch.Tensor):
+            The transformed feature tensor with the shape (dim, n_samples).
+    """
     return torch.as_tensor(
         np.asarray(
             [
@@ -42,6 +65,28 @@ def denormalize(
     bounds: Dict[str, Tuple[NumericType, NumericType]],
     hp_names: List[str],
 ) -> Dict[str, float]:
+    """
+    De-normalize the feature tensor from the range of [0, 1].
+
+    Args:
+        X (torch.Tensor):
+            The transformed feature tensor with the shape (dim, n_samples).
+        bounds (Dict[str, Tuple[NumericType, NumericType]]):
+            The lower and upper bounds for each hyperparameter.
+            Dict[hp_name, Tuple[lower bound, upper bound]].
+        hp_names (List[str]):
+            The list of hyperparameter names.
+            List[hp_name].
+
+    Returns:
+        config (Dict[str, float]):
+            The config reverted from X.
+            Dict[hp_name/obj_name, the corresponding param value].
+
+    TODO:
+        * Map to the exact type (int/float)
+        * Support categorical parameters
+    """
     shape = (len(hp_names),)
     if X.shape != (len(hp_names),):
         raise ValueError(f"The shape of X must be {shape}, but got {X.shape}")
@@ -52,10 +97,23 @@ def denormalize(
     }
 
 
-def sample(model: Union[SingleTaskGP, ModelListGP], X_train: torch.Tensor) -> torch.Tensor:
-    # predict returns the array with the shape of (batch, n_samples, n_objectives)
+def sample(model: Union[SingleTaskGP, ModelListGP], X: torch.Tensor) -> torch.Tensor:
+    """
+    Sample from the posterior based on the model given X.
+
+    Args:
+        model (Union[ModelListGP, SingleTaskGP]):
+            The Gaussian process model trained on the provided dataset.
+        X (torch.Tensor):
+            The feature tensor with the shape of (n_samples, dim) that takes as a condition.
+            Basically, we sample from y ~ model(f|X).
+
+    Returns:
+        preds (torch.Tensor):
+            The array with the shape of (batch size, n_samples, n_objectives).
+    """
     with torch.no_grad():
-        return model.posterior(X_train).sample()
+        return model.posterior(X).sample()
 
 
 def scalarize(
@@ -63,7 +121,26 @@ def scalarize(
     weights: torch.Tensor,
     rho: float = 0.05,
 ) -> torch.Tensor:
-    assert torch.isclose(weights.sum(), torch.tensor(1.0))
+    """
+    Compute the linear combination used for ParEGO.
+
+    Args:
+        Y_train (torch.Tensor):
+            The preprocessed objective tensor.
+            Note that this tensor is preprocessed so that
+            `larger is better` for the BoTorch internal implementation.
+            Y_train.shape = (n_obj, n_evals).
+        weights (torch.Tensor):
+            The weights for each objective with the shape of (n_obj, ).
+        rho (float):
+            The hyperparameter used in ParEGO.
+
+    Returns:
+        Y_train (torch.Tensor):
+            The linear combined version of the objective tensor.
+            The shape is (n_evals, ).
+    """
+    validate_weights(weights)
     # Y_train.shape = (n_obj, n_samples), Y_weighted.shape = (n_obj, n_samples)
     Y_weighted = Y_train * weights[:, None]
     # NOTE: since Y is "Larger is better", so we take min of Y_weighted
@@ -77,6 +154,36 @@ def get_train_data(
     minimize: Dict[str, bool],
     weights: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Preprocess the observations so that BoTorch can train
+    Gaussian process using this data.
+
+    Args:
+        observations (Dict[str, np.ndarray]):
+            The observations.
+            Dict[hp_name/obj_name, the array of the corresponding param].
+        bounds (Dict[str, Tuple[NumericType, NumericType]]):
+            The lower and upper bounds for each hyperparameter.
+            Dict[hp_name, Tuple[lower bound, upper bound]].
+        hp_names (List[str]):
+            The list of hyperparameter names.
+            List[hp_name].
+        minimize (Dict[str, bool]):
+            The direction of the optimization for each objective.
+            Dict[obj_name, whether to minimize or not].
+        weights (Optional[torch.Tensor]):
+                The weights used in the scalarization of ParEGO.
+
+    Returns:
+        X_train (torch.Tensor):
+            The preprocessed hyperparameter configurations tensor.
+            X_train.shape = (n_evals, dim).
+        Y_train (torch.Tensor):
+            The preprocessed objective tensor.
+            Note that this tensor is preprocessed so that
+            `larger is better` for the BoTorch internal implementation.
+            Y_train.shape = (n_obj, n_evals).
+    """
     # NOTE: Y_train will be transformed so that larger is better for botorch
     # X_train.shape = (n_samples, dim)
     X_train = normalize(observations=observations, bounds=bounds, hp_names=hp_names).T
@@ -101,7 +208,28 @@ def fit_model(
     scalarize: bool = False,
     state_dict: Optional[OrderedDict] = None,
 ) -> Union[ModelListGP, SingleTaskGP]:
+    """
+    Fit Gaussian process model on the provided data.
 
+    Args:
+        X_train (torch.Tensor):
+            The preprocessed hyperparameter configurations tensor.
+            X_train.shape = (n_evals, dim).
+        Y_train (torch.Tensor):
+            The preprocessed objective tensor.
+            Note that this tensor is preprocessed so that
+            `larger is better` for the BoTorch internal implementation.
+            Y_train.shape = (n_obj, n_evals).
+        scalarize (bool):
+            Whether to use the scalarization or not.
+        state_dict (Optional[OrderedDict]):
+            The state dict to reduce the training time in BoTorch.
+            This is used for leave-one-out cross validation.
+
+    Returns:
+        model (Union[ModelListGP, SingleTaskGP]):
+            The Gaussian process model trained on the provided dataset.
+    """
     if scalarize:  # ParEGO
         model = SingleTaskGP(train_X=X_train, train_Y=Y_train.squeeze()[:, None])
         mll_cls = ExactMarginalLogLikelihood
@@ -131,7 +259,7 @@ def get_model_and_train_data(
     weights: Optional[torch.Tensor] = None,
 ) -> Tuple[Union[SingleTaskGP, ModelListGP], torch.Tensor, torch.Tensor]:
     if weights is not None:
-        assert torch.isclose(weights.sum(), torch.tensor(1.0))
+        validate_weights(weights)
         X_train, Y_train = get_train_data(
             observations=observations,
             bounds=bounds,
@@ -150,11 +278,49 @@ def get_model_and_train_data(
 
 
 def get_parego(model: SingleTaskGP, X_train: torch.Tensor, Y_train: torch.Tensor) -> ExpectedImprovement:
+    """
+    Get the ParEGO acquisition funciton.
+
+    Args:
+        model (SingleTaskGP):
+            The Gaussian process model trained on the provided dataset.
+        X_train (torch.Tensor):
+            The preprocessed hyperparameter configurations tensor.
+            X_train.shape = (n_evals, dim).
+        Y_train (torch.Tensor):
+            The preprocessed objective tensor.
+            Note that this tensor is preprocessed so that
+            `larger is better` for the BoTorch internal implementation.
+            Y_train.shape = (n_obj, n_evals).
+
+    Returns:
+        acq_fn (ExpectedImprovement):
+            The acquisition function obtained based on the provided dataset and the model.
+    """
     acq_fn = ExpectedImprovement(model=model, best_f=Y_train.amax())
     return acq_fn
 
 
 def get_ehvi(model: ModelListGP, X_train: torch.Tensor, Y_train: torch.Tensor) -> ExpectedHypervolumeImprovement:
+    """
+    Get the Expected hypervolume improvement acquisition funciton.
+
+    Args:
+        model (ModelListGP):
+            The Gaussian process model trained on the provided dataset.
+        X_train (torch.Tensor):
+            The preprocessed hyperparameter configurations tensor.
+            X_train.shape = (n_evals, dim).
+        Y_train (torch.Tensor):
+            The preprocessed objective tensor.
+            Note that this tensor is preprocessed so that
+            `larger is better` for the BoTorch internal implementation.
+            Y_train.shape = (n_obj, n_evals).
+
+    Returns:
+        acq_fn (ExpectedHypervolumeImprovement):
+            The acquisition function obtained based on the provided dataset and the model.
+    """
     with torch.no_grad():
         pred = model.posterior(X_train).mean
 
@@ -170,8 +336,27 @@ def get_ehvi(model: ModelListGP, X_train: torch.Tensor, Y_train: torch.Tensor) -
 
 
 def get_acq_fn(
-    model: SingleTaskGP, X_train: torch.Tensor, Y_train: torch.Tensor, acq_fn_type: AcqFuncType
+    model: Union[ModelListGP, SingleTaskGP], X_train: torch.Tensor, Y_train: torch.Tensor, acq_fn_type: AcqFuncType
 ) -> Union[ExpectedImprovement, ExpectedHypervolumeImprovement]:
+    """
+    Get the specified acquisition funciton.
+
+    Args:
+        model (Union[ModelListGP, SingleTaskGP]):
+            The Gaussian process model trained on the provided dataset.
+        X_train (torch.Tensor):
+            The preprocessed hyperparameter configurations tensor.
+            X_train.shape = (n_evals, dim).
+        Y_train (torch.Tensor):
+            The preprocessed objective tensor.
+            Note that this tensor is preprocessed so that
+            `larger is better` for the BoTorch internal implementation.
+            Y_train.shape = (n_obj, n_evals).
+
+    Returns:
+        acq_fn (Union[ExpectedImprovement, ExpectedHypervolumeImprovement]):
+            The acquisition function obtained based on the provided dataset and the model.
+    """
     supported_acq_fn_types = {"parego": get_parego, "ehvi": get_ehvi}
     for acq_fn_name, func in supported_acq_fn_types.items():
         if acq_fn_name == acq_fn_type:
@@ -185,6 +370,24 @@ def optimize_acq_fn(
     bounds: Dict[str, Tuple[NumericType, NumericType]],
     hp_names: List[str],
 ) -> Dict[str, NumericType]:
+    """
+    Optimize the given acquisition function and obtain the next configuration to evaluate.
+
+    Args:
+        acq_fn (Union[ExpectedImprovement, ExpectedHypervolumeImprovement]):
+            The acquisition function obtained based on the provided dataset and the model.
+        bounds (Dict[str, Tuple[NumericType, NumericType]]):
+            The lower and upper bounds for each hyperparameter.
+            Dict[hp_name, Tuple[lower bound, upper bound]].
+        hp_names (List[str]):
+            The list of hyperparameter names.
+            List[hp_name].
+
+    Returns:
+        eval_config (Dict[str, float]):
+            The config to evaluate.
+            Dict[hp_name/obj_name, the corresponding param value].
+    """
     kwargs = dict(q=1, num_restarts=10, raw_samples=1 << 8, return_best_only=True)
     standard_bounds = torch.zeros((2, len(hp_names)))
     standard_bounds[1] = 1
