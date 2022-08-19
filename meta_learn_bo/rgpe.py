@@ -46,6 +46,7 @@ def drop_ranking_loss(
     better_than_target = torch.sum(ranking_loss[:-1] < ranking_loss[-1], dim=-1)
     p_keep = (better_than_target / n_bootstraps) * (1 - n_evals / max_evals)
     p_keep = torch.hstack([p_keep, torch.tensor(1.0)])  # the target task will not be dropped.
+    print(better_than_target)
 
     rnd = torch.as_tensor(rng.random(n_tasks))
     # if rand > p_keep --> drop
@@ -130,11 +131,16 @@ def compute_ranking_loss(rank_preds: torch.Tensor, rank_targets: torch.Tensor, b
 
     Args:
         rank_preds (torch.Tensor):
-            pass
+            The ranking predictions on meta tasks and the target task given X.
+            rank_preds[-1] is the predictions on the target task using
+            leave-one-out cross validation.
+            The shape is (n_tasks, n_evals).
         rank_targets (torch.Tensor):
-            pass
+            The ranking on the target task (observations).
+            The shape is (n_evals, ).
         bs_indices (np.ndarray):
-            pass
+            The indices for the bootstrapping.
+            The shape is (n_bootstraps, n_evals).
 
     Returns:
         ranking_loss (torch.Tensor):

@@ -16,9 +16,11 @@ def compute_ranking_loss(rank_preds: np.ndarray, rank_targets: np.ndarray, bandw
 
     Args:
         rank_preds (np.ndarray):
-            pass
+            The ranking predictions on meta tasks given X.
+            The shape is (n_tasks - 1, n_evals).
         rank_targets (np.ndarray):
-            pass
+            The ranking on the target task (observations).
+            The shape is (n_evals, ).
         bandwidth (float):
             rho in the original paper.
 
