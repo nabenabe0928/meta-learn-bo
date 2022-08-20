@@ -267,18 +267,17 @@ def get_model_and_train_data(
     cat_dims: List[int],
     weights: Optional[torch.Tensor] = None,
 ) -> Tuple[ModelType, torch.Tensor, torch.Tensor]:
-    kwargs = dict(
+    scalarize = weights is not None
+    if weights is not None:
+        validate_weights(weights)
+
+    X_train, Y_train = get_train_data(
         observations=observations,
         bounds=bounds,
         hp_names=hp_names,
         minimize=minimize,
         weights=weights,
     )
-    scalarize = (weights is not None)
-    if weights is not None:
-        validate_weights(weights)
-
-    X_train, Y_train = get_train_data(**kwargs)
     model = fit_model(X_train=X_train, Y_train=Y_train, cat_dims=cat_dims, scalarize=scalarize)
 
     return model, X_train, Y_train

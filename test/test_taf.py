@@ -36,7 +36,9 @@ def test_validate_input() -> None:
     acq_fn_type = "parego"
     for i in range(1, 4):
         observations, bounds, hp_names, minimize = get_random_observations(size=10 * i)
-        model, X_train, Y_train = get_model_and_train_data(observations, bounds, hp_names, minimize, parego_weights)
+        model, X_train, Y_train = get_model_and_train_data(
+            observations, bounds, hp_names, minimize, weights=parego_weights, cat_dims=[]
+        )
         acq_fn = get_acq_fn(model, X_train, Y_train, acq_fn_type=acq_fn_type)
         acq_fn_list.append(acq_fn)
         parego_weights, acq_fn_type = None, "ehvi"
@@ -54,7 +56,7 @@ def test_forward_in_taf() -> None:
         for i in range(1, 4):
             observations, bounds, hp_names, minimize = get_random_observations(size=10 * i)
             model, X_train, Y_train = get_model_and_train_data(
-                observations, bounds, hp_names, minimize, weights=parego_weights
+                observations, bounds, hp_names, minimize, cat_dims=[], weights=parego_weights
             )
             acq_fn = get_acq_fn(model, X_train, Y_train, acq_fn_type=acq_fn_type)
             acq_fn_list.append(acq_fn)
@@ -74,7 +76,7 @@ def test_skip_small_weights_in_taf() -> None:
     acq_fn_list = []
     for i in range(1, 4):
         observations, bounds, hp_names, minimize = get_random_observations(size=10 * i)
-        model, X_train, Y_train = get_model_and_train_data(observations, bounds, hp_names, minimize)
+        model, X_train, Y_train = get_model_and_train_data(observations, bounds, hp_names, minimize, cat_dims=[])
         acq_fn = get_acq_fn(model, X_train, Y_train, acq_fn_type="ehvi")
         acq_fn_list.append(acq_fn)
     else:

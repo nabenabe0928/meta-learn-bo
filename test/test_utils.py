@@ -114,12 +114,12 @@ def test_sample() -> None:
     n_samples = N_SAMPLES
     observations, bounds, hp_names, minimize = get_random_observations(size=n_samples)
     X_train, Y_train = get_train_data(observations, bounds, hp_names, minimize)
-    model = fit_model(X_train, Y_train)
+    model = fit_model(X_train, Y_train, cat_dims=[])
     Y = sample(model, X_train)
     assert Y.shape == (1, n_samples, 3)
 
     X_train, Y_train = get_train_data(observations, bounds, hp_names, minimize, weights=torch.tensor([0.5, 0.3, 0.2]))
-    model = fit_model(X_train, Y_train, scalarize=True)
+    model = fit_model(X_train, Y_train, cat_dims=[], scalarize=True)
     Y = sample(model, X_train)
     assert Y.shape == (1, n_samples, 1)
 
@@ -128,27 +128,27 @@ def test_fit_model() -> None:
     n_samples = N_SAMPLES
     observations, bounds, hp_names, minimize = get_random_observations(size=n_samples)
     X_train, Y_train = get_train_data(observations, bounds, hp_names, minimize)
-    model = fit_model(X_train, Y_train)
+    model = fit_model(X_train, Y_train, cat_dims=[])
     assert isinstance(model, ModelListGP)
-    fit_model(X_train, Y_train, state_dict=model.state_dict())
+    fit_model(X_train, Y_train, cat_dims=[], state_dict=model.state_dict())
 
     X_train, Y_train = get_train_data(observations, bounds, hp_names, minimize, weights=torch.tensor([0.5, 0.3, 0.2]))
-    model = fit_model(X_train, Y_train, scalarize=True)
+    model = fit_model(X_train, Y_train, cat_dims=[], scalarize=True)
     assert isinstance(model, SingleTaskGP)
-    fit_model(X_train, Y_train, scalarize=True, state_dict=model.state_dict())
+    fit_model(X_train, Y_train, cat_dims=[], scalarize=True, state_dict=model.state_dict())
 
     with pytest.raises(IndexError):
-        fit_model(X_train, Y_train, scalarize=False)
+        fit_model(X_train, Y_train, cat_dims=[], scalarize=False)
 
 
 def test_get_model_and_train_data() -> None:
     n_samples = N_SAMPLES
     observations, bounds, hp_names, minimize = get_random_observations(size=n_samples)
-    model, X_train, Y_train = get_model_and_train_data(observations, bounds, hp_names, minimize)
+    model, X_train, Y_train = get_model_and_train_data(observations, bounds, hp_names, minimize, cat_dims=[])
     assert isinstance(model, ModelListGP)
 
     model, X_train, Y_train = get_model_and_train_data(
-        observations, bounds, hp_names, minimize, weights=torch.tensor([0.5, 0.3, 0.2])
+        observations, bounds, hp_names, minimize, cat_dims=[], weights=torch.tensor([0.5, 0.3, 0.2])
     )
     assert isinstance(model, SingleTaskGP)
 
@@ -156,7 +156,7 @@ def test_get_model_and_train_data() -> None:
 def test_get_acq_fn() -> None:
     n_samples = N_SAMPLES
     observations, bounds, hp_names, minimize = get_random_observations(size=n_samples)
-    model, X_train, Y_train = get_model_and_train_data(observations, bounds, hp_names, minimize)
+    model, X_train, Y_train = get_model_and_train_data(observations, bounds, hp_names, minimize, cat_dims=[])
     acq_fn = get_acq_fn(model, X_train, Y_train, acq_fn_type="ehvi")
     assert isinstance(acq_fn, ExpectedHypervolumeImprovement)
 
@@ -164,7 +164,7 @@ def test_get_acq_fn() -> None:
         get_acq_fn(model, X_train, Y_train, acq_fn_type="parego")
 
     model, X_train, Y_train = get_model_and_train_data(
-        observations, bounds, hp_names, minimize, weights=torch.tensor([0.5, 0.3, 0.2])
+        observations, bounds, hp_names, minimize, cat_dims=[], weights=torch.tensor([0.5, 0.3, 0.2])
     )
     acq_fn = get_acq_fn(model, X_train, Y_train, acq_fn_type="parego")
     assert isinstance(acq_fn, ExpectedImprovement)
@@ -179,7 +179,7 @@ def test_get_acq_fn() -> None:
 def test_optimize_acq_fn() -> None:
     n_samples = N_SAMPLES
     observations, bounds, hp_names, minimize = get_random_observations(size=n_samples)
-    model, X_train, Y_train = get_model_and_train_data(observations, bounds, hp_names, minimize)
+    model, X_train, Y_train = get_model_and_train_data(observations, bounds, hp_names, minimize, cat_dims=[])
     acq_fn = get_acq_fn(model, X_train, Y_train, acq_fn_type="ehvi")
     eval_config = optimize_acq_fn(acq_fn, bounds, hp_names)
     assert len(eval_config.keys()) == len(hp_names)
@@ -188,7 +188,7 @@ def test_optimize_acq_fn() -> None:
         assert key in hp_names
 
     model, X_train, Y_train = get_model_and_train_data(
-        observations, bounds, hp_names, minimize, weights=torch.tensor([0.5, 0.3, 0.2])
+        observations, bounds, hp_names, minimize, cat_dims=[], weights=torch.tensor([0.5, 0.3, 0.2])
     )
     acq_fn = get_acq_fn(model, X_train, Y_train, acq_fn_type="parego")
     eval_config = optimize_acq_fn(acq_fn, bounds, hp_names)
