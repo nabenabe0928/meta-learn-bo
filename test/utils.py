@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Tuple
 
-from meta_learn_bo.utils import NumericType
+from meta_learn_bo.utils import HyperParameterType, NumericType
 
 import numpy as np
 
@@ -45,10 +45,10 @@ def initial_sample(
 
 
 def get_kwargs_and_observations(size: int) -> Dict[str, Any]:
-    hp_names: List[str] = ["x0", "x1"]
+    hp_info: Dict[str, HyperParameterType] = {"x0": HyperParameterType.Continuous, "x1": HyperParameterType.Continuous}
     bounds: Dict[str, Tuple[float, float]] = {"x0": (-5, 5), "x1": (-5, 5)}
     minimize: Dict[str, bool] = {"f1": True, "f2": True}
-    kwargs = dict(hp_names=hp_names, minimize=minimize, bounds=bounds)
+    kwargs = dict(hp_info=hp_info, minimize=minimize, bounds=bounds)
 
-    observations = initial_sample(size=size, **kwargs)
+    observations = initial_sample(size=size, minimize=minimize, bounds=bounds, hp_names=list(hp_info.keys()))
     return kwargs, observations

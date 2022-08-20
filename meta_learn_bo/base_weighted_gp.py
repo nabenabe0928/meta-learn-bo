@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 from botorch.acquisition import ExpectedImprovement
 from botorch.acquisition.multi_objective import ExpectedHypervolumeImprovement
@@ -9,6 +9,7 @@ from botorch.models.model_list_gp_regression import ModelListGP
 from meta_learn_bo.taf import TransferAcquisitionFunction
 from meta_learn_bo.utils import (
     AcqFuncType,
+    HyperParameterType,
     NumericType,
     PAREGO,
     get_acq_fn,
@@ -28,8 +29,7 @@ class BaseWeightedGP(metaclass=ABCMeta):
         init_data: Dict[str, np.ndarray],
         metadata: Dict[str, Dict[str, np.ndarray]],
         bounds: Dict[str, Tuple[NumericType, NumericType]],
-        hp_names: List[str],
-        is_categoricals: Dict[str, bool],
+        hp_info: Dict[str, HyperParameterType],
         minimize: Dict[str, bool],
         acq_fn_type: AcqFuncType,
         target_task_name: str,
@@ -49,12 +49,11 @@ class BaseWeightedGP(metaclass=ABCMeta):
                 Dict[task_name, Dict[hp_name/obj_name, the array of the corresponding param]].
             bounds (Dict[str, Tuple[NumericType, NumericType]]):
                 The lower and upper bounds for each hyperparameter.
+                If the parameter is categorical, it must be [0, the number of categories - 1].
                 Dict[hp_name, Tuple[lower bound, upper bound]].
-            hp_names (List[str]):
-                The list of hyperparameter names.
-                List[hp_name].
-            is_categoricals (Dict[str, bool]):
-                Whether the given hyperparameter is categorical.
+            hp_info (Dict[str, HyperParameterType]):
+                The type information of each hyperparameter.
+                Dict[hp_name, HyperParameterType].
             minimize (Dict[str, bool]):
                 The direction of the optimization for each objective.
                 Dict[obj_name, whether to minimize or not].
@@ -79,8 +78,9 @@ class BaseWeightedGP(metaclass=ABCMeta):
         self._n_tasks = len(self._task_names)
         self._bounds = bounds
         self._max_evals = max_evals
-        self._hp_names = hp_names
-        self._cat_dims = [idx for idx, hp_name in enumerate(hp_names) if is_categoricals[hp_name]]
+        self._hp_info = hp_info
+        self._hp_names = list(hp_info.keys())
+        self._cat_dims = [idx for idx, hp_name in enumerate(self._hp_names) if hp_info[hp_name] == str]
         self._minimize = minimize
         self._obj_names = list(minimize.keys())
         self._observations: Dict[str, np.ndarray] = init_data

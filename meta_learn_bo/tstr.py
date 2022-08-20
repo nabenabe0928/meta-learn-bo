@@ -1,9 +1,9 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from fast_pareto import nondominated_rank
 
 from meta_learn_bo.base_weighted_gp import BaseWeightedGP
-from meta_learn_bo.utils import AcqFuncType, NumericType, sample
+from meta_learn_bo.utils import AcqFuncType, HyperParameterType, NumericType, sample
 
 import numpy as np
 
@@ -44,8 +44,7 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
         init_data: Dict[str, np.ndarray],
         metadata: Dict[str, Dict[str, np.ndarray]],
         bounds: Dict[str, Tuple[NumericType, NumericType]],
-        hp_names: List[str],
-        is_categoricals: Dict[str, bool],
+        hp_info: Dict[str, HyperParameterType],
         minimize: Dict[str, bool],
         acq_fn_type: AcqFuncType = "ehvi",
         target_task_name: str = "target_task",
@@ -68,11 +67,9 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
             bounds (Dict[str, Tuple[NumericType, NumericType]]):
                 The lower and upper bounds for each hyperparameter.
                 Dict[hp_name, Tuple[lower bound, upper bound]].
-            hp_names (List[str]):
-                The list of hyperparameter names.
-                List[hp_name].
-            is_categoricals (Dict[str, bool]):
-                Whether the given hyperparameter is categorical.
+            hp_info (Dict[str, HyperParameterType]):
+                The type information of each hyperparameter.
+                Dict[hp_name, HyperParameterType].
             bandwidth (float):
                 rho in the original paper.
             minimize (Dict[str, bool]):
@@ -95,8 +92,7 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
             init_data=init_data,
             metadata=metadata,
             bounds=bounds,
-            hp_names=hp_names,
-            is_categoricals=is_categoricals,
+            hp_info=hp_info,
             minimize=minimize,
             acq_fn_type=acq_fn_type,
             target_task_name=target_task_name,

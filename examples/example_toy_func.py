@@ -1,7 +1,7 @@
 import warnings
 
 from meta_learn_bo import (
-    RankingWeigtedGaussianProcessEnsemble,
+    RankingWeightedGaussianProcessEnsemble,
     TwoStageTransferWithRanking,
 )
 
@@ -16,7 +16,7 @@ def optimize(acq_fn_type: str = "parego", rank_weight_type: str = "rgpe") -> Non
     n_init, max_evals = 10, 20
     observations = get_initial_samples(n_init)
     bo_method = {
-        "rgpe": RankingWeigtedGaussianProcessEnsemble,
+        "rgpe": RankingWeightedGaussianProcessEnsemble,
         "tstr": TwoStageTransferWithRanking,
     }[rank_weight_type]
     model = bo_method(
@@ -30,7 +30,7 @@ def optimize(acq_fn_type: str = "parego", rank_weight_type: str = "rgpe") -> Non
 
     for t in range(max_evals - n_init):
         eval_config = model.optimize_acq_fn()
-        results = toy_func(eval_config)
+        results = toy_func(eval_config.copy())
         model.update(eval_config=eval_config, results=results)
         print(f"Iteration {t + 1}: ", eval_config, results)
 

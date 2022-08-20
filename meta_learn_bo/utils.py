@@ -1,5 +1,6 @@
 from collections import OrderedDict
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from enum import Enum
+from typing import Dict, List, Literal, Optional, Tuple, Type, Union
 
 from botorch import fit_gpytorch_model
 from botorch.acquisition import ExpectedImprovement
@@ -23,6 +24,22 @@ AcqFuncType = Literal["parego", "ehvi"]
 NumericType = Union[int, float]
 SingleTaskGPType = Union[SingleTaskGP, MixedSingleTaskGP]
 ModelType = Union[SingleTaskGP, MixedSingleTaskGP, ModelListGP]
+
+
+class HyperParameterType(Enum):
+    Categorical: Type = str
+    Integer: Type = int
+    Continuous: Type = float
+
+    def __call__(self, val: Union[str, NumericType]) -> Union[str, NumericType]:
+        if self.value == int:
+            assert not isinstance(val, str)
+            return int(val + 0.5)
+        else:
+            return val
+
+    def __eq__(self, type_: Type) -> bool:  # type: ignore
+        return self.value == type_
 
 
 def validate_weights(weights: torch.Tensor) -> None:

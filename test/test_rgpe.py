@@ -1,7 +1,7 @@
 import unittest
 
 from meta_learn_bo.rgpe import (
-    RankingWeigtedGaussianProcessEnsemble,
+    RankingWeightedGaussianProcessEnsemble,
     compute_ranking_loss,
     compute_rank_weights,
     drop_ranking_loss,
@@ -15,7 +15,6 @@ from utils import get_kwargs_and_observations
 
 
 def test_compute_rank_weights() -> None:
-    is_categoricals = {"x0": False, "x1": False}
     for acq_fn_type in ["ehvi", "parego"]:
         kwargs, observations = get_kwargs_and_observations(size=5)
         kwargs.update(n_bootstraps=50, acq_fn_type=acq_fn_type)
@@ -23,9 +22,7 @@ def test_compute_rank_weights() -> None:
         _, metadata["src20"] = get_kwargs_and_observations(size=10)
         _, metadata["src30"] = get_kwargs_and_observations(size=15)
 
-        rgpe = RankingWeigtedGaussianProcessEnsemble(
-            init_data=observations, metadata=metadata, is_categoricals=is_categoricals, **kwargs
-        )
+        rgpe = RankingWeightedGaussianProcessEnsemble(init_data=observations, metadata=metadata, **kwargs)
         assert getattr(rgpe, "_task_weights") is not None
         assert torch.isclose(torch.sum(rgpe._task_weights), torch.tensor(1.0))
 
@@ -34,18 +31,14 @@ def test_compute_rank_weights() -> None:
         metadata = {}
         _, metadata["src20"] = get_kwargs_and_observations(size=20)
         _, metadata["src30"] = get_kwargs_and_observations(size=30)
-        rgpe = RankingWeigtedGaussianProcessEnsemble(
-            init_data=observations, metadata=metadata, is_categoricals=is_categoricals, **kwargs
-        )
+        rgpe = RankingWeightedGaussianProcessEnsemble(init_data=observations, metadata=metadata, **kwargs)
         assert getattr(rgpe, "_task_weights") is not None
         assert torch.isclose(torch.sum(rgpe._task_weights), torch.tensor(1.0))
 
         kwargs, observations = get_kwargs_and_observations(size=10)
         metadata = {}
         kwargs.update(n_bootstraps=50, acq_fn_type=acq_fn_type)
-        rgpe = RankingWeigtedGaussianProcessEnsemble(
-            init_data=observations, metadata=metadata, is_categoricals=is_categoricals, **kwargs
-        )
+        rgpe = RankingWeightedGaussianProcessEnsemble(init_data=observations, metadata=metadata, **kwargs)
         assert getattr(rgpe, "_task_weights") is not None
         assert torch.allclose(rgpe._task_weights, torch.ones(1))
 
