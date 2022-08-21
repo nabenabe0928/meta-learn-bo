@@ -1,4 +1,3 @@
-import itertools
 from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -13,7 +12,9 @@ from meta_learn_bo.utils import (
     HyperParameterType,
     NumericType,
     PAREGO,
+    convert_categories_into_index,
     get_acq_fn,
+    get_fixed_features_list,
     get_model_and_train_data,
     get_train_data,
     optimize_acq_fn,
@@ -22,52 +23,6 @@ from meta_learn_bo.utils import (
 import numpy as np
 
 import torch
-
-
-def get_fixed_features_list(
-    hp_names: List[str], cat_dims: List[int], categories: Dict[str, List[str]]
-) -> Optional[List[Dict[int, float]]]:
-    """
-    Returns:
-        fixed_features_list (Optional[List[Dict[int, float]]]):
-            A list of maps `{feature_index: value}`.
-            The i-th item represents the fixed_feature for the i-th optimization.
-            Basically, we would like to perform len(fixed_features_list) times of
-            optimizations and we use each `fixed_features` in each optimization.
-
-    NOTE:
-        Due to the normalization, we need to define each parameter to be in [0, 1].
-        For this reason, when we have K categories, the possible choices will be
-        [0, 1/(K-1), 2/(K-1), ..., (K-1)/(K-1)].
-    """
-    if len(cat_dims) == 0:
-        return None
-
-    fixed_features_list: List[Dict[int, float]] = []
-    for feats in itertools.product(
-        *(np.linspace(0, len(categories[hp_names[d]]) - 1, len(categories[hp_names[d]])) for d in cat_dims)
-    ):
-        fixed_features_list.append({d: val for val, d in zip(feats, cat_dims)})
-
-    return fixed_features_list
-
-
-def convert_categories_into_index(
-    data: Dict[str, np.ndarray], categories: Optional[Dict[str, List[str]]]
-) -> Dict[str, np.ndarray]:
-    if categories is None:
-        return data
-
-    for hp_name, cats in categories.items():
-        n_cats = len(cats)
-        data[hp_name] = np.asarray([cats.index(v) if isinstance(v, str) else int(v) for v in data[hp_name]])
-
-        if not np.all((0 <= data[hp_name]) & (data[hp_name] < n_cats)):
-            raise ValueError(
-                f"Provided data in the categorical hyperparameter `{hp_name}` must be in [0, {n_cats - 1}], "
-                f"but got {data[hp_name]}"
-            )
-    return data
 
 
 class BaseWeightedGP(metaclass=ABCMeta):

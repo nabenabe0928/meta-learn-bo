@@ -1,3 +1,4 @@
+import itertools
 from collections import OrderedDict
 from enum import Enum
 from typing import Dict, List, Literal, Optional, Tuple, Type, Union
@@ -30,13 +31,6 @@ class HyperParameterType(Enum):
     Categorical: Type = str
     Integer: Type = int
     Continuous: Type = float
-
-    def __call__(self, val: Union[str, NumericType]) -> Union[str, NumericType]:
-        if self.value == int:
-            assert not isinstance(val, str)
-            return int(val + 0.5)
-        else:
-            return val
 
     def __eq__(self, type_: Type) -> bool:  # type: ignore
         return self.value == type_
@@ -102,10 +96,6 @@ def denormalize(
         config (Dict[str, float]):
             The config reverted from X.
             Dict[hp_name/obj_name, the corresponding param value].
-
-    TODO:
-        * Map to the exact type (int/float)
-        * Support categorical parameters
     """
     shape = (len(hp_names),)
     if X.shape != (len(hp_names),):
@@ -429,3 +419,63 @@ def optimize_acq_fn(
 
     eval_config = denormalize(X=X.squeeze(), bounds=bounds, hp_names=hp_names)
     return eval_config
+
+
+def get_fixed_features_list(
+    hp_names: List[str], cat_dims: List[int], categories: Dict[str, List[str]]
+) -> Optional[List[Dict[int, float]]]:
+    """
+    Returns:
+        fixed_features_list (Optional[List[Dict[int, float]]]):
+            A list of maps `{feature_index: value}`.
+            The i-th item represents the fixed_feature for the i-th optimization.
+            Basically, we would like to perform len(fixed_features_list) times of
+            optimizations and we use each `fixed_features` in each optimization.
+
+    NOTE:
+        Due to the normalization, we need to define each parameter to be in [0, 1].
+        For this reason, when we have K categories, the possible choices will be
+        [0, 1/(K-1), 2/(K-1), ..., (K-1)/(K-1)].
+    """
+    if len(cat_dims) == 0:
+        return None
+
+    fixed_features_list: List[Dict[int, float]] = []
+    for feats in itertools.product(*(np.linspace(0, 1, len(categories[hp_names[d]])) for d in cat_dims)):
+        fixed_features_list.append({d: val for val, d in zip(feats, cat_dims)})
+
+    return fixed_features_list
+
+
+def convert_categories_into_index(
+    data: Dict[str, np.ndarray], categories: Optional[Dict[str, List[str]]]
+) -> Dict[str, np.ndarray]:
+    """
+    Convert data so that categorical arrays will be the corresponding index arrays.
+
+    Args:
+        data (Dict[str, np.ndarray]):
+            The data of observations.
+            Dict[hp_name/obj_name, the array of the corresponding param].
+        categories (Optional[Dict[str, List[str]]]):
+            Categories for each categorical parameter.
+            Dict[categorical hp name, List[each category name]].
+
+    Returns:
+        converted_data (Dict[str, np.ndarray]):
+            This data has only numerical arrays as categorical arrays
+            are converted into the corresponding index arrays.
+    """
+    if categories is None:
+        return data
+
+    for hp_name, cats in categories.items():
+        n_cats = len(cats)
+        data[hp_name] = np.asarray([cats.index(v) if isinstance(v, str) else int(v) for v in data[hp_name]])
+
+        if not np.all((0 <= data[hp_name]) & (data[hp_name] < n_cats)):
+            raise ValueError(
+                f"Provided data in the categorical hyperparameter `{hp_name}` must be in [0, {n_cats - 1}], "
+                f"but got {data[hp_name]}"
+            )
+    return data
