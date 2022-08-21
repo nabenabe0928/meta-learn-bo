@@ -8,7 +8,7 @@ from botorch.acquisition.multi_objective import ExpectedHypervolumeImprovement
 from botorch.models import SingleTaskGP
 from botorch.models.gp_regression_mixed import MixedSingleTaskGP
 from botorch.models.model_list_gp_regression import ModelListGP
-from botorch.optim.optimize import optimize_acqf
+from botorch.optim.optimize import optimize_acqf, optimize_acqf_mixed
 from botorch.utils.multi_objective.box_decompositions.non_dominated import FastNondominatedPartitioning
 
 from gpytorch.mlls import ExactMarginalLogLikelihood
@@ -392,6 +392,7 @@ def optimize_acq_fn(
     acq_fn: ExpectedHypervolumeImprovement,
     bounds: Dict[str, Tuple[NumericType, NumericType]],
     hp_names: List[str],
+    fixed_features_list: Optional[List[Dict[int, float]]],
 ) -> Dict[str, NumericType]:
     """
     Optimize the given acquisition function and obtain the next configuration to evaluate.
@@ -405,6 +406,11 @@ def optimize_acq_fn(
         hp_names (List[str]):
             The list of hyperparameter names.
             List[hp_name].
+        fixed_features_list (Optional[List[Dict[int, float]]]):
+            A list of maps `{feature_index: value}`.
+            The i-th item represents the fixed_feature for the i-th optimization.
+            Basically, we would like to perform len(fixed_features_list) times of
+            optimizations and we use each `fixed_features` in each optimization.
 
     Returns:
         eval_config (Dict[str, float]):
@@ -414,6 +420,12 @@ def optimize_acq_fn(
     kwargs = dict(q=1, num_restarts=10, raw_samples=1 << 8, return_best_only=True)
     standard_bounds = torch.zeros((2, len(hp_names)))
     standard_bounds[1] = 1
-    X, _ = optimize_acqf(acq_function=acq_fn, bounds=standard_bounds, **kwargs)
+    if fixed_features_list is None:
+        X, _ = optimize_acqf(acq_function=acq_fn, bounds=standard_bounds, **kwargs)
+    else:
+        X, _ = optimize_acqf_mixed(
+            acq_function=acq_fn, bounds=standard_bounds, fixed_features_list=fixed_features_list, **kwargs
+        )
+
     eval_config = denormalize(X=X.squeeze(), bounds=bounds, hp_names=hp_names)
     return eval_config

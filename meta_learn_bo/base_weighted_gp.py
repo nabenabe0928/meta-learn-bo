@@ -1,3 +1,4 @@
+import itertools
 from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -21,6 +22,34 @@ from meta_learn_bo.utils import (
 import numpy as np
 
 import torch
+
+
+def get_fixed_features_list(
+    hp_names: List[str], cat_dims: List[int], categories: Dict[str, List[str]]
+) -> Optional[List[Dict[int, float]]]:
+    """
+    Returns:
+        fixed_features_list (Optional[List[Dict[int, float]]]):
+            A list of maps `{feature_index: value}`.
+            The i-th item represents the fixed_feature for the i-th optimization.
+            Basically, we would like to perform len(fixed_features_list) times of
+            optimizations and we use each `fixed_features` in each optimization.
+
+    NOTE:
+        Due to the normalization, we need to define each parameter to be in [0, 1].
+        For this reason, when we have K categories, the possible choices will be
+        [0, 1/(K-1), 2/(K-1), ..., (K-1)/(K-1)].
+    """
+    if len(cat_dims) == 0:
+        return None
+
+    fixed_features_list: List[Dict[int, float]] = []
+    for feats in itertools.product(
+        *(np.linspace(0, len(categories[hp_names[d]]) - 1, len(categories[hp_names[d]])) for d in cat_dims)
+    ):
+        fixed_features_list.append({d: val for val, d in zip(feats, cat_dims)})
+
+    return fixed_features_list
 
 
 class BaseWeightedGP(metaclass=ABCMeta):
@@ -93,6 +122,10 @@ class BaseWeightedGP(metaclass=ABCMeta):
         self._rng = np.random.RandomState(seed)
         self._task_weights: torch.Tensor
         self._categories: Dict[str, List[str]] = categories if categories is not None else {}
+        self._fixed_features_list = get_fixed_features_list(
+            hp_names=self._hp_names, cat_dims=self._cat_dims, categories=self._categories
+        )
+
         self._validate_input()
         self._train()
 
@@ -109,24 +142,52 @@ class BaseWeightedGP(metaclass=ABCMeta):
             for hp_name, val in self._observations.items()
         }
 
+    @property
+    def fixed_features_list(self) -> Optional[List[Dict[int, float]]]:
+        """
+        Returns:
+            fixed_features_list (Optional[List[Dict[int, float]]]):
+                A list of maps `{feature_index: value}`.
+                The i-th item represents the fixed_feature for the i-th optimization.
+                Basically, we would like to perform len(fixed_features_list) times of
+                optimizations and we use each `fixed_features` in each optimization.
+
+        NOTE:
+            Due to the normalization, we need to define each parameter to be in [0, 1].
+            For this reason, when we have K categories, the possible choices will be
+            [0, 1/(K-1), 2/(K-1), ..., (K-1)/(K-1)].
+        """
+        return self._fixed_features_list
+
     def _validate_input(self) -> None:
         if len(set(self._task_names)) != self._n_tasks:
             raise ValueError(f"task_names must be different from each other, but got {self._task_names}")
+
         if not all(hp_name in self._hp_names for hp_name in self._bounds.keys()):
             raise ValueError(
                 "bounds must have the bounds for all hyperparameters. "
                 f"Expected {self._hp_names}, but got {list(self._bounds.keys())}"
             )
+
         if not all(name in self._observations for name in self._hp_names + self._obj_names):
             raise ValueError(
                 "observations must have the data for all hyperparameters and objectives. "
                 f"Expected {self._hp_names + self._obj_names}, but got {list(self._observations.keys())}"
             )
-        if len(self._cat_dims) > 0 and (
-            self._categories is None or not all(self._hp_names[d] in self._categories for d in self._cat_dims)
-        ):
+
+        if len(self._cat_dims) > 0:
             cat_hp_names = [self._hp_names[d] for d in self._cat_dims]
-            raise ValueError(f"categories must include the categories for {cat_hp_names}, but got {self._categories}")
+            if self._categories is None or not all(self._hp_names[d] in self._categories for d in self._cat_dims):
+                raise ValueError(
+                    f"categories must include the categories for {cat_hp_names}, but got {self._categories}"
+                )
+            for hp_name in cat_hp_names:
+                n_cats = len(self._categories[hp_name])
+                if self._bounds[hp_name] != (0, n_cats - 1):
+                    raise ValueError(
+                        f"The categorical parameter `{hp_name}` has {n_cats} categories and expects "
+                        f"the bound to be (0, n_cats - 1)=(0, {n_cats - 1}), but got {self._bounds[hp_name]}"
+                    )
 
         for task_name in self._task_names[:-1]:
             observations = self._metadata[task_name]
@@ -141,7 +202,12 @@ class BaseWeightedGP(metaclass=ABCMeta):
         return f"task weights = ({ws})"
 
     def optimize_acq_fn(self) -> Dict[str, Union[str, NumericType]]:
-        raw_config = optimize_acq_fn(acq_fn=self.acq_fn, bounds=self._bounds, hp_names=self._hp_names)
+        raw_config = optimize_acq_fn(
+            acq_fn=self.acq_fn,
+            bounds=self._bounds,
+            hp_names=self._hp_names,
+            fixed_features_list=self._fixed_features_list,
+        )
         eval_config: Dict[str, Union[str, NumericType]] = {}
         for hp_name, val in raw_config.items():
             type_ = self._hp_info[hp_name].value

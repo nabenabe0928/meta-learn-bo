@@ -181,7 +181,7 @@ def test_optimize_acq_fn() -> None:
     observations, bounds, hp_names, minimize = get_random_observations(size=n_samples)
     model, X_train, Y_train = get_model_and_train_data(observations, bounds, hp_names, minimize, cat_dims=[])
     acq_fn = get_acq_fn(model, X_train, Y_train, acq_fn_type="ehvi")
-    eval_config = optimize_acq_fn(acq_fn, bounds, hp_names)
+    eval_config = optimize_acq_fn(acq_fn, bounds, hp_names, fixed_features_list=None)
     assert len(eval_config.keys()) == len(hp_names)
     for key, value in eval_config.items():
         assert isinstance(value, (int, float))
@@ -191,7 +191,7 @@ def test_optimize_acq_fn() -> None:
         observations, bounds, hp_names, minimize, cat_dims=[], weights=torch.tensor([0.5, 0.3, 0.2])
     )
     acq_fn = get_acq_fn(model, X_train, Y_train, acq_fn_type="parego")
-    eval_config = optimize_acq_fn(acq_fn, bounds, hp_names)
+    eval_config = optimize_acq_fn(acq_fn, bounds, hp_names, fixed_features_list=None)
     assert len(eval_config.keys()) == len(hp_names)
     for key, value in eval_config.items():
         assert isinstance(value, (int, float))
