@@ -46,7 +46,7 @@ def categorical_toy_func(eval_config: Dict[str, float]) -> Dict[str, float]:
     elif c == "cos":
         f2 = np.cos(x**2 + y**2)
     elif c == "identity":
-        f2 = x ** 2 + y ** 2
+        f2 = x**2 + y**2
 
     return {"f1": f1, "f2": f2}
 

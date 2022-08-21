@@ -118,23 +118,6 @@ class BaseWeightedGP(metaclass=ABCMeta):
             for hp_name, val in self._observations.items()
         }
 
-    @property
-    def fixed_features_list(self) -> Optional[List[Dict[int, float]]]:
-        """
-        Returns:
-            fixed_features_list (Optional[List[Dict[int, float]]]):
-                A list of maps `{feature_index: value}`.
-                The i-th item represents the fixed_feature for the i-th optimization.
-                Basically, we would like to perform len(fixed_features_list) times of
-                optimizations and we use each `fixed_features` in each optimization.
-
-        NOTE:
-            Due to the normalization, we need to define each parameter to be in [0, 1].
-            For this reason, when we have K categories, the possible choices will be
-            [0, 1/(K-1), 2/(K-1), ..., (K-1)/(K-1)].
-        """
-        return self._fixed_features_list
-
     def _validate_input(self) -> None:
         if len(set(self._task_names)) != self._n_tasks:
             raise ValueError(f"task_names must be different from each other, but got {self._task_names}")
@@ -159,6 +142,10 @@ class BaseWeightedGP(metaclass=ABCMeta):
                 )
             for hp_name in cat_hp_names:
                 n_cats = len(self._categories[hp_name])
+                if not all(isinstance(cat, str) for cat in self._categories[hp_name]):
+                    raise ValueError(
+                        f"Categories must be str, but got {self._categories[hp_name]} for the hyperparameter {hp_name}"
+                    )
                 if self._bounds[hp_name] != (0, n_cats - 1):
                     raise ValueError(
                         f"The categorical parameter `{hp_name}` has {n_cats} categories and expects "
@@ -197,6 +184,29 @@ class BaseWeightedGP(metaclass=ABCMeta):
 
         return eval_config
 
+    def _validate_config_and_results(
+        self, eval_config: Dict[str, Union[str, NumericType]], results: Dict[str, float]
+    ) -> None:
+        if not all(obj_name in results for obj_name in self._obj_names):
+            raise KeyError(f"results must have keys {self._obj_names}, but got {results}")
+        if not all(hp_name in eval_config for hp_name in self._hp_names):
+            raise KeyError(f"eval_config must have keys {self._hp_names}, but got {eval_config}")
+
+        EPS = 1e-12
+        for hp_name, val in eval_config.items():
+            if not isinstance(val, self._hp_info[hp_name].value):
+                raise TypeError(
+                    f"`{hp_name}` in eval_config must have the type {self._hp_info[hp_name].value}, but got {type(val)}"
+                )
+            lb, ub = self._bounds[hp_name]
+            if self._hp_info[hp_name] == str:
+                if val not in self._categories[hp_name]:
+                    raise ValueError(
+                        f"`{hp_name}` in eval_config must be in {self._categories[hp_name]}, but got {val}"
+                    )
+            elif val < lb - EPS or ub + EPS < val:
+                raise ValueError(f"`{hp_name}` in eval_config must be in [{lb}, {ub}], but got {val}")
+
     def update(self, eval_config: Dict[str, Union[str, NumericType]], results: Dict[str, float]) -> None:
         """
         Update the target observations, (a) Gaussian process model(s),
@@ -210,13 +220,18 @@ class BaseWeightedGP(metaclass=ABCMeta):
             results (Dict[str, float]):
                 The results obtained from the evaluation of eval_config.
         """
+        self._validate_config_and_results(eval_config=eval_config, results=results)
         for hp_name, val in eval_config.items():
+            new_val: NumericType
             if self._hp_info[hp_name] == str:
-                assert isinstance(val, str)
-                val = self._categories[hp_name].index(val)
+                assert isinstance(val, str)  # mypy redefinition
+                new_val = self._categories[hp_name].index(val)
+            else:
+                assert isinstance(val, (float, int))
+                new_val = val
 
-            np_type = np.int32 if isinstance(val, int) else np.float64
-            self._observations[hp_name] = np.append(self._observations[hp_name], val).astype(np_type)
+            np_type = np.int32 if isinstance(new_val, int) else np.float64
+            self._observations[hp_name] = np.append(self._observations[hp_name], new_val).astype(np_type)
 
         for obj_name, val in results.items():
             self._observations[obj_name] = np.append(self._observations[obj_name], val)
