@@ -52,6 +52,24 @@ def get_fixed_features_list(
     return fixed_features_list
 
 
+def convert_categories_into_index(
+    data: Dict[str, np.ndarray], categories: Optional[Dict[str, List[str]]]
+) -> Dict[str, np.ndarray]:
+    if categories is None:
+        return data
+
+    for hp_name, cats in categories.items():
+        n_cats = len(cats)
+        data[hp_name] = np.asarray([cats.index(v) if isinstance(v, str) else int(v) for v in data[hp_name]])
+
+        if not np.all((0 <= data[hp_name]) & (data[hp_name] < n_cats)):
+            raise ValueError(
+                f"Provided data in the categorical hyperparameter `{hp_name}` must be in [0, {n_cats - 1}], "
+                f"but got {data[hp_name]}"
+            )
+    return data
+
+
 class BaseWeightedGP(metaclass=ABCMeta):
     def __init__(
         self,
@@ -105,7 +123,6 @@ class BaseWeightedGP(metaclass=ABCMeta):
         self._base_models: Dict[str, Union[SingleTaskGP, ModelListGP]] = {}
         self._acq_fns: Dict[str, Union[ExpectedImprovement, ExpectedHypervolumeImprovement]] = {}
         self._acq_fn: TransferAcquisitionFunction
-        self._metadata: Dict[str, Dict[str, np.ndarray]] = metadata
         self._task_names = list(metadata.keys()) + [target_task_name]
         self._target_task_name = target_task_name
         self._n_tasks = len(self._task_names)
@@ -117,11 +134,15 @@ class BaseWeightedGP(metaclass=ABCMeta):
         self._cat_dims = [idx for idx, hp_name in enumerate(self._hp_names) if hp_info[hp_name] == str]
         self._minimize = minimize
         self._obj_names = list(minimize.keys())
-        self._observations: Dict[str, np.ndarray] = init_data
         self._acq_fn_type = acq_fn_type
         self._rng = np.random.RandomState(seed)
         self._task_weights: torch.Tensor
         self._categories: Dict[str, List[str]] = categories if categories is not None else {}
+
+        self._observations = convert_categories_into_index(init_data, categories)
+        self._metadata: Dict[str, Dict[str, np.ndarray]] = {
+            task_name: convert_categories_into_index(data, categories) for task_name, data in metadata.items()
+        }
         self._fixed_features_list = get_fixed_features_list(
             hp_names=self._hp_names, cat_dims=self._cat_dims, categories=self._categories
         )
@@ -239,7 +260,8 @@ class BaseWeightedGP(metaclass=ABCMeta):
                 assert isinstance(val, str)
                 val = self._categories[hp_name].index(val)
 
-            self._observations[hp_name] = np.append(self._observations[hp_name], val)
+            np_type = np.int32 if isinstance(val, int) else np.float64
+            self._observations[hp_name] = np.append(self._observations[hp_name], val).astype(np_type)
 
         for obj_name, val in results.items():
             self._observations[obj_name] = np.append(self._observations[obj_name], val)
