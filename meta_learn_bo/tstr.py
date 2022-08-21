@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from fast_pareto import nondominated_rank
 
@@ -50,6 +50,7 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
         target_task_name: str = "target_task",
         max_evals: int = 100,
         bandwidth: float = 0.1,
+        categories: Optional[Dict[str, List[str]]] = None,
         seed: Optional[int] = None,
     ):
         """Two-stage transfer surrogate with ranking from the paper:
@@ -81,6 +82,9 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
                 The name of the target task.
             max_evals (int):
                 How many hyperparameter configurations to evaluate during the optimization.
+            categories (Optional[Dict[str, List[str]]]):
+                Categories for each categorical parameter.
+                Dict[categorical hp name, List[each category name]].
             seed (Optional[int]):
                 The random seed.
 
@@ -97,6 +101,7 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
             acq_fn_type=acq_fn_type,
             target_task_name=target_task_name,
             max_evals=max_evals,
+            categories=categories,
             seed=seed,
         )
 

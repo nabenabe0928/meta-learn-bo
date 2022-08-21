@@ -183,6 +183,7 @@ class RankingWeightedGaussianProcessEnsemble(BaseWeightedGP):
         acq_fn_type: AcqFuncType = "ehvi",
         target_task_name: str = "target_task",
         max_evals: int = 100,
+        categories: Optional[Dict[str, List[str]]] = None,
         seed: Optional[int] = None,
     ):
         """The default setting of the paper:
@@ -221,6 +222,9 @@ class RankingWeightedGaussianProcessEnsemble(BaseWeightedGP):
                 The name of the target task.
             max_evals (int):
                 How many hyperparameter configurations to evaluate during the optimization.
+            categories (Optional[Dict[str, List[str]]]):
+                Categories for each categorical parameter.
+                Dict[categorical hp name, List[each category name]].
             seed (Optional[int]):
                 The random seed.
 
@@ -237,6 +241,7 @@ class RankingWeightedGaussianProcessEnsemble(BaseWeightedGP):
             acq_fn_type=acq_fn_type,
             target_task_name=target_task_name,
             max_evals=max_evals,
+            categories=categories,
             seed=seed,
         )
 

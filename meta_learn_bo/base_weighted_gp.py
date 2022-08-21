@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from botorch.acquisition import ExpectedImprovement
 from botorch.acquisition.multi_objective import ExpectedHypervolumeImprovement
@@ -34,7 +34,8 @@ class BaseWeightedGP(metaclass=ABCMeta):
         acq_fn_type: AcqFuncType,
         target_task_name: str,
         max_evals: int,
-        seed: Optional[int] = None,
+        categories: Optional[Dict[str, List[str]]],
+        seed: Optional[int],
     ):
         """The base class for the weighted combination of
         Gaussian process based acquisition functions.
@@ -63,6 +64,9 @@ class BaseWeightedGP(metaclass=ABCMeta):
                 The name of the target task.
             max_evals (int):
                 How many hyperparameter configurations to evaluate during the optimization.
+            categories (Optional[Dict[str, List[str]]]):
+                Categories for each categorical parameter.
+                Dict[categorical hp name, List[each category name]].
             seed (Optional[int]):
                 The random seed.
 
@@ -80,6 +84,7 @@ class BaseWeightedGP(metaclass=ABCMeta):
         self._max_evals = max_evals
         self._hp_info = hp_info
         self._hp_names = list(hp_info.keys())
+        # cat_dim specifies which dimensions are categorical parameters
         self._cat_dims = [idx for idx, hp_name in enumerate(self._hp_names) if hp_info[hp_name] == str]
         self._minimize = minimize
         self._obj_names = list(minimize.keys())
@@ -87,6 +92,7 @@ class BaseWeightedGP(metaclass=ABCMeta):
         self._acq_fn_type = acq_fn_type
         self._rng = np.random.RandomState(seed)
         self._task_weights: torch.Tensor
+        self._categories: Dict[str, List[str]] = categories if categories is not None else {}
         self._validate_input()
         self._train()
 
@@ -96,7 +102,12 @@ class BaseWeightedGP(metaclass=ABCMeta):
 
     @property
     def observations(self) -> Dict[str, np.ndarray]:
-        return {key: val.copy() for key, val in self._observations.items()}
+        return {
+            hp_name: val.copy()
+            if hp_name not in self._categories
+            else np.asarray([self._categories[hp_name][idx] for idx in val])
+            for hp_name, val in self._observations.items()
+        }
 
     def _validate_input(self) -> None:
         if len(set(self._task_names)) != self._n_tasks:
@@ -111,6 +122,11 @@ class BaseWeightedGP(metaclass=ABCMeta):
                 "observations must have the data for all hyperparameters and objectives. "
                 f"Expected {self._hp_names + self._obj_names}, but got {list(self._observations.keys())}"
             )
+        if len(self._cat_dims) > 0 and (
+            self._categories is None or not all(self._hp_names[d] in self._categories for d in self._cat_dims)
+        ):
+            cat_hp_names = [self._hp_names[d] for d in self._cat_dims]
+            raise ValueError(f"categories must include the categories for {cat_hp_names}, but got {self._categories}")
 
         for task_name in self._task_names[:-1]:
             observations = self._metadata[task_name]
@@ -124,10 +140,22 @@ class BaseWeightedGP(metaclass=ABCMeta):
         ws = ", ".join([f"{name}: {float(w):.3f}" for name, w in zip(self._task_names, self._task_weights)])
         return f"task weights = ({ws})"
 
-    def optimize_acq_fn(self) -> Dict[str, NumericType]:
-        return optimize_acq_fn(acq_fn=self.acq_fn, bounds=self._bounds, hp_names=self._hp_names)
+    def optimize_acq_fn(self) -> Dict[str, Union[str, NumericType]]:
+        raw_config = optimize_acq_fn(acq_fn=self.acq_fn, bounds=self._bounds, hp_names=self._hp_names)
+        eval_config: Dict[str, Union[str, NumericType]] = {}
+        for hp_name, val in raw_config.items():
+            type_ = self._hp_info[hp_name].value
+            if type_ == float:
+                eval_config[hp_name] = val
+            elif type_ == int:
+                eval_config[hp_name] = int(val + 0.5)
+            else:
+                cat_idx = int(val + 0.5)
+                eval_config[hp_name] = self._categories[hp_name][cat_idx]
 
-    def update(self, eval_config: Dict[str, NumericType], results: Dict[str, float]) -> None:
+        return eval_config
+
+    def update(self, eval_config: Dict[str, Union[str, NumericType]], results: Dict[str, float]) -> None:
         """
         Update the target observations, (a) Gaussian process model(s),
         and its/their acquisition function(s).
@@ -135,12 +163,16 @@ class BaseWeightedGP(metaclass=ABCMeta):
         and the corresponding acquisition functions.
 
         Args:
-            eval_config (Dict[str, NumericType]):
+            eval_config (Dict[str, Union[str, NumericType]]):
                 The hyperparameter configuration that were evaluated.
             results (Dict[str, float]):
                 The results obtained from the evaluation of eval_config.
         """
         for hp_name, val in eval_config.items():
+            if self._hp_info[hp_name] == str:
+                assert isinstance(val, str)
+                val = self._categories[hp_name].index(val)
+
             self._observations[hp_name] = np.append(self._observations[hp_name], val)
 
         for obj_name, val in results.items():
