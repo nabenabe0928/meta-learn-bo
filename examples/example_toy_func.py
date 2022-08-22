@@ -1,42 +1,51 @@
 import warnings
 
 from meta_learn_bo import (
+    HyperParameterType,
+    MetaLearnGPSampler,
     RankingWeightedGaussianProcessEnsemble,
-    TwoStageTransferWithRanking,
+    get_random_samples,
 )
-
-from examples.toy_func import get_initial_samples, get_toy_func_info, toy_func
 
 
 warnings.filterwarnings("ignore")
 
 
-def optimize(acq_fn_type: str = "parego", rank_weight_type: str = "rgpe") -> None:
-    kwargs = get_toy_func_info()
-    n_init, max_evals = 10, 20
-    observations = get_initial_samples(n_init)
-    bo_method = {
-        "rgpe": RankingWeightedGaussianProcessEnsemble,
-        "tstr": TwoStageTransferWithRanking,
-    }[rank_weight_type]
-    model = bo_method(
-        init_data=observations,
-        metadata={"src": get_initial_samples(n_init=50)},
-        max_evals=max_evals,
-        acq_fn_type=acq_fn_type,
-        target_task_name="target",
-        **kwargs,
-    )
+def func(eval_config, shift=0):
+    x, y = eval_config["x"], eval_config["y"]
+    f1 = (x + shift) ** 2 + (y + shift) ** 2
+    f2 = (x - 2 + shift) ** 2 + (y - 2 + shift) ** 2
+    return {"f1": f1, "f2": f2}
 
-    for t in range(max_evals - n_init):
-        eval_config = model.optimize_acq_fn()
-        results = toy_func(eval_config.copy())
-        model.update(eval_config=eval_config, results=results)
-        print(f"Iteration {t + 1}: ", eval_config, results)
 
-    print(model.observations)
+def run():
+    # Define the search space!
+    # 1. bounds: The bounds for each hyperparameter.
+    bounds = {"x": (-5, 5), "y": (-5, 5)}
+    # 2. hp_info: The parameter type of each hyperparameter.
+    hp_info = {"x": HyperParameterType.Continuous, "y": HyperParameterType.Continuous}
+    # 3. minimize: The direction to optimize for each objective
+    minimize = {"f1": True, "f2": True}
+    kwargs = dict(minimize=minimize, bounds=bounds, hp_info=hp_info)
+
+    # Collect metadata on meta tasks.
+    metadata = {
+        "src": get_random_samples(n_samples=30, obj_func=lambda eval_config: func(eval_config, shift=2), **kwargs)
+    }
+    # Collect the initial samples on the target task
+    init_data = get_random_samples(n_samples=10, obj_func=func, **kwargs)
+
+    # Define the meta-learn GP model based on the init_data and the metadata
+    rgpe = RankingWeightedGaussianProcessEnsemble(init_data=init_data, metadata=metadata, **kwargs)
+
+    # Define the sampler
+    sampler = MetaLearnGPSampler(max_evals=20, obj_func=func, model=rgpe, **kwargs)
+
+    # Run the optimization.
+    sampler.optimize()
+    # Output the observations during the whole optimization (random sample + BO sample)
+    print(sampler.observations)
 
 
 if __name__ == "__main__":
-    optimize(acq_fn_type="ehvi")
-    optimize(acq_fn_type="parego")
+    run()
