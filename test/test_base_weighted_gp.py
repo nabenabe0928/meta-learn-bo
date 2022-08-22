@@ -2,6 +2,7 @@ import unittest
 
 import pytest
 
+from meta_learn_bo.models.base_weighted_gp import modify_bounds_for_integers, modify_raw_config
 from meta_learn_bo.models.rgpe import RankingWeightedGaussianProcessEnsemble
 from meta_learn_bo.models.taf import TransferAcquisitionFunction
 from meta_learn_bo.utils import get_train_data
@@ -14,6 +15,35 @@ from utils import (
     obj_func,
     obj_func_for_categorical,
 )
+
+
+def test_modify_bounds_for_integers() -> None:
+    kwargs, _ = get_kwargs_and_observations_for_categorical(size=1)
+    hp_info, bounds = kwargs["hp_info"], kwargs["bounds"]
+    bounds_new = modify_bounds_for_integers(bounds.copy(), hp_info)
+    bounds_new["i0"] = (bounds["i0"][0] + 1e-5, bounds["i0"][1] - 1e-5)
+    bounds_new["i1"] = (bounds["i1"][0] + 1e-5, bounds["i1"][1] - 1e-5)
+
+
+def test_modify_raw_config() -> None:
+    kwargs, _ = get_kwargs_and_observations_for_categorical(size=1)
+    hp_info = kwargs["hp_info"]
+    categories = {"c0": ["a", "b"], "c1": ["A", "B", "C", "D", "E"]}
+    raw_config = {
+        "x0": -3.33,
+        "x1": 23.33,
+        "i0": -2 + 1e-5,
+        "i1": 3 - 1e-5,
+        "c0": 0.99,
+        "c1": 3.01,
+    }
+    eval_config = modify_raw_config(raw_config, hp_info=hp_info, categories=categories)
+    assert eval_config["x0"] == -3.33
+    assert eval_config["x1"] == 23.33
+    assert eval_config["i0"] == -2
+    assert eval_config["i1"] == 3
+    assert eval_config["c0"] == "b"
+    assert eval_config["c1"] == "D"
 
 
 def test_validate_input_and_properties() -> None:

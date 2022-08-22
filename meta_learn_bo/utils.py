@@ -473,7 +473,7 @@ def optimize_acq_fn(
     bounds: Dict[str, Tuple[NumericType, NumericType]],
     hp_names: List[str],
     fixed_features_list: Optional[List[Dict[int, float]]],
-) -> Dict[str, NumericType]:
+) -> Dict[str, float]:
     """
     Optimize the given acquisition function and obtain the next configuration to evaluate.
 

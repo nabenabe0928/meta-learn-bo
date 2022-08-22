@@ -6,21 +6,6 @@ from meta_learn_bo.utils import HyperParameterType, NumericType, update_observat
 import numpy as np
 
 
-def convert_val(
-    val: NumericType,
-    hp_type: HyperParameterType,
-    choices: Optional[List[str]],
-) -> Union[str, NumericType]:
-    if hp_type == int:
-        return int(np.round(val))
-    elif hp_type == float:
-        return val
-    else:
-        assert choices is not None  # mypy redefinition
-        idx = int(val)
-        return choices[idx]
-
-
 def get_random_samples(
     bounds: Dict[str, Tuple[NumericType, NumericType]],
     hp_info: Dict[str, HyperParameterType],

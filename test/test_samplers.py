@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Tuple
 
 from meta_learn_bo.models.rgpe import RankingWeightedGaussianProcessEnsemble
 from meta_learn_bo.samplers.bo_sampler import MetaLearnGPSampler
-from meta_learn_bo.samplers.random_sampler import RandomSampler, convert_val, get_random_samples
+from meta_learn_bo.samplers.random_sampler import RandomSampler, get_random_samples
 from meta_learn_bo.utils import HyperParameterType, NumericType
 
 import numpy as np
@@ -68,33 +68,6 @@ def test_get_random_samples() -> None:
             assert np.sum(np.isclose(samples1[hp_name], samples2[hp_name])) != n_samples
         else:
             assert np.any(samples1[hp_name] != samples2[hp_name])
-
-
-def test_convert_val() -> None:
-    choices = None
-    hp_type = HyperParameterType.Continuous
-    val = convert_val(val=0.5, hp_type=hp_type, choices=choices)
-    assert val == 0.5
-
-    hp_type = HyperParameterType.Integer
-    val = convert_val(val=0.4, hp_type=hp_type, choices=choices)
-    assert val == 0
-
-    val = convert_val(val=0.6, hp_type=hp_type, choices=choices)
-    assert val == 1
-
-    val = convert_val(val=-0.4, hp_type=hp_type, choices=choices)
-    assert val == 0
-
-    val = convert_val(val=-0.6, hp_type=hp_type, choices=choices)
-    assert val == -1
-
-    hp_type = HyperParameterType.Categorical
-    choices = ["a", "b", "c"]
-    for add in [0, 0.4, 0.6]:
-        for idx in range(3):
-            val = convert_val(val=idx + add, hp_type=hp_type, choices=choices)
-            assert val == choices[idx]
 
 
 def test_optimize_sampler() -> None:

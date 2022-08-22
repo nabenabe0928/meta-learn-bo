@@ -30,6 +30,75 @@ import numpy as np
 import torch
 
 
+def modify_bounds_for_integers(
+    bounds: Dict[str, Tuple[NumericType, NumericType]], hp_info: Dict[str, HyperParameterType]
+) -> Dict[str, Tuple[NumericType, NumericType]]:
+    """
+    Modify the bounds of integers so that the both lower/upper bounds
+    will not be undersampled.
+
+    Args:
+        bounds (Dict[str, Tuple[NumericType, NumericType]]):
+            The lower and upper bounds for each hyperparameter.
+            If the parameter is categorical, it must be [0, the number of categories - 1].
+            Dict[hp_name, Tuple[lower bound, upper bound]].
+        hp_info (Dict[str, HyperParameterType]):
+            The type information of each hyperparameter.
+            Dict[hp_name, HyperParameterType].
+
+    Returns:
+        modified_bounds (Dict[str, Tuple[NumericType, NumericType]]):
+            The bounds of integers will look: (lb, ub) --> (lb - 0.5 + EPS, ub + 0.5 - EPS)
+    """
+    EPS = 1e-5
+    for hp_name, hp_type in hp_info.items():
+        lb, ub = bounds[hp_name]
+        if hp_type == int:
+            bounds[hp_name] = (lb - 0.5 + EPS, ub + 0.5 - EPS)
+
+    return bounds
+
+
+def modify_raw_config(
+    raw_config: Dict[str, float],
+    hp_info: Dict[str, HyperParameterType],
+    categories: Dict[str, List[str]],
+) -> Dict[str, Union[str, NumericType]]:
+    """
+    Convert the raw configuration obtained from the acquisition function optimization
+    into the original scale.
+
+    Args:
+        raw_config (Dict[str, float]):
+            The configuration in float values.
+                * continuous values are already in the preferred scale
+                * integer values are still float values in the range of (lb - 0.5 + EPS, ub + 0.5 - EPS).
+                * categorical values are in the form of a float index (e.g. 1.0, 7.0)
+        hp_info (Dict[str, HyperParameterType]):
+            The type information of each hyperparameter.
+            Dict[hp_name, HyperParameterType].
+        categories (Dict[str, List[str]]):
+            Categories for each categorical parameter.
+            Dict[categorical hp name, List[each category name]].
+
+    Returns:
+        eval_config (Dict[str, Union[str, NumericType]]):
+            Modified raw_config such that the objective function can input.
+    """
+    eval_config: Dict[str, Union[str, NumericType]] = {}
+    for hp_name, val in raw_config.items():
+        type_ = hp_info[hp_name].value
+        if type_ == float:
+            eval_config[hp_name] = val
+        elif type_ == int:
+            eval_config[hp_name] = int(np.round(val))
+        else:
+            cat_idx = int(np.round(val))
+            eval_config[hp_name] = categories[hp_name][cat_idx]
+
+    return eval_config
+
+
 class BaseWeightedGP(metaclass=ABCMeta):
     def __init__(
         self,
@@ -86,7 +155,7 @@ class BaseWeightedGP(metaclass=ABCMeta):
         self._task_names = list(metadata.keys()) + [target_task_name]
         self._target_task_name = target_task_name
         self._n_tasks = len(self._task_names)
-        self._bounds = bounds
+        self._bounds = modify_bounds_for_integers(bounds=bounds, hp_info=hp_info)
         self._max_evals = max_evals
         self._hp_info = hp_info
         self._hp_names = list(hp_info.keys())
@@ -149,16 +218,9 @@ class BaseWeightedGP(metaclass=ABCMeta):
             hp_names=self._hp_names,
             fixed_features_list=self._fixed_features_list,
         )
-        eval_config: Dict[str, Union[str, NumericType]] = {}
-        for hp_name, val in raw_config.items():
-            type_ = self._hp_info[hp_name].value
-            if type_ == float:
-                eval_config[hp_name] = val
-            elif type_ == int:
-                eval_config[hp_name] = int(val + 0.5)
-            else:
-                cat_idx = int(val + 0.5)
-                eval_config[hp_name] = self._categories[hp_name][cat_idx]
+        eval_config: Dict[str, Union[str, NumericType]] = modify_raw_config(
+            raw_config=raw_config, hp_info=self._hp_info, categories=self._categories
+        )
 
         return eval_config
 
