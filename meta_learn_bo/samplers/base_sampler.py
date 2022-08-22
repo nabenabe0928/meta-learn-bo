@@ -19,6 +19,7 @@ class BaseSampler(metaclass=ABCMeta):
         minimize: Dict[str, bool],
         max_evals: int,
         obj_func: Callable,
+        verbose: bool,
         categories: Optional[Dict[str, List[str]]],
         seed: Optional[int],
     ):
@@ -42,6 +43,8 @@ class BaseSampler(metaclass=ABCMeta):
             categories (Optional[Dict[str, List[str]]]):
                 Categories for each categorical parameter.
                 Dict[categorical hp name, List[each category name]].
+            verbose (bool):
+                Whether to print the results at each iteration.
             seed (Optional[int]):
                 The random seed.
         """
@@ -57,22 +60,23 @@ class BaseSampler(metaclass=ABCMeta):
         self._categories: Dict[str, List[str]] = categories if categories is not None else {}
         self._rng = np.random.RandomState(seed)
         self._observations: Dict[str, np.ndarray] = {name: np.array([]) for name in self._hp_names + self._obj_names}
+        self._verbose = verbose
 
         self._validate_input()
 
     @property
+    @abstractmethod
     def observations(self) -> Dict[str, np.ndarray]:
-        return {
-            hp_name: val.copy()
-            if hp_name not in self._categories
-            else np.asarray([self._categories[hp_name][idx] for idx in val])
-            for hp_name, val in self._observations.items()
-        }
+        raise NotImplementedError
 
     def optimize(self) -> None:
-        for _ in range(self._max_evals):
+        for t in range(self._max_evals):
             eval_config = self.sample()
             results = self._obj_func(eval_config.copy())
+
+            if self._verbose:
+                print(f"Iteration {t + 1}: eval_config={eval_config}, results={results}")
+
             self.update(eval_config=eval_config, results=results)
 
     def _validate_input(self) -> None:
@@ -95,10 +99,7 @@ class BaseSampler(metaclass=ABCMeta):
     @abstractmethod
     def update(self, eval_config: Dict[str, Union[str, NumericType]], results: Dict[str, float]) -> None:
         """
-        Update the target observations, (a) Gaussian process model(s),
-        and its/their acquisition function(s).
-        If the acq_fn_type is ParEGO, we need to re-train each Gaussian process models
-        and the corresponding acquisition functions.
+        Update required information.
 
         Args:
             eval_config (Dict[str, Union[str, NumericType]]):

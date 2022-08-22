@@ -14,6 +14,7 @@ class RandomSampler(BaseSampler):
         minimize: Dict[str, bool],
         max_evals: int,
         obj_func: Callable,
+        verbose: bool = True,
         categories: Optional[Dict[str, List[str]]] = None,
         seed: Optional[int] = None,
     ):
@@ -37,6 +38,8 @@ class RandomSampler(BaseSampler):
             categories (Optional[Dict[str, List[str]]]):
                 Categories for each categorical parameter.
                 Dict[categorical hp name, List[each category name]].
+            verbose (bool):
+                Whether to print the results at each iteration.
             seed (Optional[int]):
                 The random seed.
         """
@@ -46,9 +49,19 @@ class RandomSampler(BaseSampler):
             minimize=minimize,
             max_evals=max_evals,
             obj_func=obj_func,
+            verbose=verbose,
             categories=categories,
             seed=seed,
         )
+
+    @property
+    def observations(self) -> Dict[str, np.ndarray]:
+        return {
+            hp_name: val.copy()
+            if hp_name not in self._categories
+            else np.asarray([self._categories[hp_name][idx] for idx in val])
+            for hp_name, val in self._observations.items()
+        }
 
     def sample(self) -> Dict[str, Union[str, NumericType]]:
         """
@@ -75,10 +88,7 @@ class RandomSampler(BaseSampler):
 
     def update(self, eval_config: Dict[str, Union[str, NumericType]], results: Dict[str, float]) -> None:
         """
-        Update the target observations, (a) Gaussian process model(s),
-        and its/their acquisition function(s).
-        If the acq_fn_type is ParEGO, we need to re-train each Gaussian process models
-        and the corresponding acquisition functions.
+        Update the target observations.
 
         Args:
             eval_config (Dict[str, Union[str, NumericType]]):
