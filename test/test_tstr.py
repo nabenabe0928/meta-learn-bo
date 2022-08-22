@@ -1,6 +1,6 @@
 import unittest
 
-from meta_learn_bo.tstr import TwoStageTransferWithRanking, compute_ranking_loss
+from meta_learn_bo.models.tstr import TwoStageTransferWithRanking, compute_ranking_loss
 
 import numpy as np
 

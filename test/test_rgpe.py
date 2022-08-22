@@ -1,6 +1,6 @@
 import unittest
 
-from meta_learn_bo.rgpe import (
+from meta_learn_bo.models.rgpe import (
     RankingWeightedGaussianProcessEnsemble,
     compute_ranking_loss,
     compute_rank_weights,

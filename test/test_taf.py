@@ -3,7 +3,7 @@ from typing import Dict, List, Tuple
 
 import pytest
 
-from meta_learn_bo.taf import TransferAcquisitionFunction
+from meta_learn_bo.models.taf import TransferAcquisitionFunction
 from meta_learn_bo.utils import NumericType, get_acq_fn, get_model_and_train_data
 
 import numpy as np

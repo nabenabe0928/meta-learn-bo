@@ -6,7 +6,7 @@ from botorch.acquisition.multi_objective import ExpectedHypervolumeImprovement
 from botorch.models import SingleTaskGP
 from botorch.models.model_list_gp_regression import ModelListGP
 
-from meta_learn_bo.taf import TransferAcquisitionFunction
+from meta_learn_bo.models.taf import TransferAcquisitionFunction
 from meta_learn_bo.utils import (
     AcqFuncType,
     HyperParameterType,

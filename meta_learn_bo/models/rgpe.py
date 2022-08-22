@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Tuple
 
 from fast_pareto import nondominated_rank
 
-from meta_learn_bo.base_weighted_gp import BaseWeightedGP
+from meta_learn_bo.models.base_weighted_gp import BaseWeightedGP
 from meta_learn_bo.utils import AcqFuncType, HyperParameterType, NumericType, PAREGO, fit_model, sample
 
 import numpy as np

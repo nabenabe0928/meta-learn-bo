@@ -2,8 +2,8 @@ import unittest
 
 import pytest
 
-from meta_learn_bo.rgpe import RankingWeightedGaussianProcessEnsemble
-from meta_learn_bo.taf import TransferAcquisitionFunction
+from meta_learn_bo.models.rgpe import RankingWeightedGaussianProcessEnsemble
+from meta_learn_bo.models.taf import TransferAcquisitionFunction
 from meta_learn_bo.utils import get_train_data
 
 import torch
@@ -124,7 +124,7 @@ def test_update():
 
 
 def test_update_for_categorical():
-    n_init = 3
+    n_init = 2
     categories = {"c0": ["a", "b"], "c1": ["A", "B", "C", "D", "E"]}
     for acq_fn_type in ["parego", "ehvi"]:
         kwargs, observations = get_kwargs_and_observations_for_categorical(size=n_init)
@@ -132,10 +132,10 @@ def test_update_for_categorical():
         kwargs_for_proc["hp_names"] = list(kwargs_for_proc["hp_info"].keys())
         kwargs_for_proc.pop("hp_info")
         X_train, _ = get_train_data(observations, **kwargs_for_proc)
-        kwargs.update(n_bootstraps=50, acq_fn_type=acq_fn_type)
+        kwargs.update(n_bootstraps=35, acq_fn_type=acq_fn_type)
         metadata = {}
-        _, metadata["src20"] = get_kwargs_and_observations_for_categorical(size=4)
-        _, metadata["src30"] = get_kwargs_and_observations_for_categorical(size=5)
+        _, metadata["src20"] = get_kwargs_and_observations_for_categorical(size=3)
+        _, metadata["src30"] = get_kwargs_and_observations_for_categorical(size=4)
         rgpe = RankingWeightedGaussianProcessEnsemble(
             init_data=observations, metadata=metadata, categories=categories, **kwargs
         )
