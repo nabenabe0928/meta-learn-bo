@@ -18,6 +18,9 @@ from meta_learn_bo.utils import (
     get_model_and_train_data,
     get_train_data,
     optimize_acq_fn,
+    validate_bounds,
+    validate_categorical_info,
+    validate_data,
 )
 
 import numpy as np
@@ -122,43 +125,16 @@ class BaseWeightedGP(metaclass=ABCMeta):
         if len(set(self._task_names)) != self._n_tasks:
             raise ValueError(f"task_names must be different from each other, but got {self._task_names}")
 
-        if not all(hp_name in self._hp_names for hp_name in self._bounds.keys()):
-            raise ValueError(
-                "bounds must have the bounds for all hyperparameters. "
-                f"Expected {self._hp_names}, but got {list(self._bounds.keys())}"
-            )
+        validate_bounds(hp_names=self._hp_names, bounds=self._bounds)
 
-        if not all(name in self._observations for name in self._hp_names + self._obj_names):
-            raise ValueError(
-                "observations must have the data for all hyperparameters and objectives. "
-                f"Expected {self._hp_names + self._obj_names}, but got {list(self._observations.keys())}"
-            )
-
-        if len(self._cat_dims) > 0:
-            cat_hp_names = [self._hp_names[d] for d in self._cat_dims]
-            if self._categories is None or not all(self._hp_names[d] in self._categories for d in self._cat_dims):
-                raise ValueError(
-                    f"categories must include the categories for {cat_hp_names}, but got {self._categories}"
-                )
-            for hp_name in cat_hp_names:
-                n_cats = len(self._categories[hp_name])
-                if not all(isinstance(cat, str) for cat in self._categories[hp_name]):
-                    raise ValueError(
-                        f"Categories must be str, but got {self._categories[hp_name]} for the hyperparameter {hp_name}"
-                    )
-                if self._bounds[hp_name] != (0, n_cats - 1):
-                    raise ValueError(
-                        f"The categorical parameter `{hp_name}` has {n_cats} categories and expects "
-                        f"the bound to be (0, n_cats - 1)=(0, {n_cats - 1}), but got {self._bounds[hp_name]}"
-                    )
+        validate_data(data=self._observations, hp_names=self._hp_names, obj_names=self._obj_names)
+        validate_categorical_info(
+            categories=self._categories, cat_dims=self._cat_dims, bounds=self._bounds, hp_names=self._hp_names
+        )
 
         for task_name in self._task_names[:-1]:
             observations = self._metadata[task_name]
-            if not all(name in observations for name in self._hp_names + self._obj_names):
-                raise ValueError(
-                    f"metadata for {task_name} must have the data for all hyperparameters and objectives. "
-                    f"Expected {self._hp_names + self._obj_names}, but got {list(observations.keys())}"
-                )
+            validate_data(data=observations, hp_names=self._hp_names, obj_names=self._obj_names)
 
     def _task_weights_repr(self) -> str:
         ws = ", ".join([f"{name}: {float(w):.3f}" for name, w in zip(self._task_names, self._task_weights)])

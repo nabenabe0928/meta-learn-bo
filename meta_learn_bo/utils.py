@@ -36,6 +36,45 @@ class HyperParameterType(Enum):
         return self.value == type_
 
 
+def validate_bounds(hp_names: List[str], bounds: Dict[str, Tuple[NumericType, NumericType]]) -> None:
+    if not all(hp_name in hp_names for hp_name in bounds.keys()):
+        raise ValueError(
+            "bounds must have the bounds for all hyperparameters. "
+            f"Expected {hp_names}, but got {list(bounds.keys())}"
+        )
+
+
+def validate_data(data: Dict[str, np.ndarray], hp_names: List[str], obj_names: List[str]) -> None:
+    if not all(name in data for name in hp_names + obj_names):
+        raise ValueError(
+            "data must have the data for all hyperparameters and objectives. "
+            f"Expected {hp_names + obj_names}, but got {list(data.keys())}"
+        )
+
+
+def validate_categorical_info(
+    categories: Optional[Dict[str, List[str]]],
+    cat_dims: List[int],
+    hp_names: List[str],
+    bounds: Dict[str, Tuple[NumericType, NumericType]],
+) -> None:
+    if len(cat_dims) == 0:
+        return
+
+    cat_hp_names = [hp_names[d] for d in cat_dims]
+    if categories is None or not all(hp_names[d] in categories for d in cat_dims):
+        raise ValueError(f"categories must include the categories for {cat_hp_names}, but got {categories}")
+    for hp_name in cat_hp_names:
+        n_cats = len(categories[hp_name])
+        if not all(isinstance(cat, str) for cat in categories[hp_name]):
+            raise ValueError(f"Categories must be str, but got {categories[hp_name]} for the hyperparameter {hp_name}")
+        if bounds[hp_name] != (0, n_cats - 1):
+            raise ValueError(
+                f"The categorical parameter `{hp_name}` has {n_cats} categories and expects "
+                f"the bound to be (0, n_cats - 1)=(0, {n_cats - 1}), but got {bounds[hp_name]}"
+            )
+
+
 def validate_weights(weights: torch.Tensor) -> None:
     if not torch.isclose(weights.sum(), torch.tensor(1.0)):
         raise ValueError(f"The sum of the weights must be 1, but got {weights}")
