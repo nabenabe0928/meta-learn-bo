@@ -18,8 +18,10 @@ from meta_learn_bo.utils import (
     get_model_and_train_data,
     get_train_data,
     optimize_acq_fn,
+    update_observations,
     validate_bounds,
     validate_categorical_info,
+    validate_config_and_results,
     validate_data,
 )
 
@@ -126,7 +128,6 @@ class BaseWeightedGP(metaclass=ABCMeta):
             raise ValueError(f"task_names must be different from each other, but got {self._task_names}")
 
         validate_bounds(hp_names=self._hp_names, bounds=self._bounds)
-
         validate_data(data=self._observations, hp_names=self._hp_names, obj_names=self._obj_names)
         validate_categorical_info(
             categories=self._categories, cat_dims=self._cat_dims, bounds=self._bounds, hp_names=self._hp_names
@@ -163,25 +164,15 @@ class BaseWeightedGP(metaclass=ABCMeta):
     def _validate_config_and_results(
         self, eval_config: Dict[str, Union[str, NumericType]], results: Dict[str, float]
     ) -> None:
-        if not all(obj_name in results for obj_name in self._obj_names):
-            raise KeyError(f"results must have keys {self._obj_names}, but got {results}")
-        if not all(hp_name in eval_config for hp_name in self._hp_names):
-            raise KeyError(f"eval_config must have keys {self._hp_names}, but got {eval_config}")
-
-        EPS = 1e-12
-        for hp_name, val in eval_config.items():
-            if not isinstance(val, self._hp_info[hp_name].value):
-                raise TypeError(
-                    f"`{hp_name}` in eval_config must have the type {self._hp_info[hp_name].value}, but got {type(val)}"
-                )
-            lb, ub = self._bounds[hp_name]
-            if self._hp_info[hp_name] == str:
-                if val not in self._categories[hp_name]:
-                    raise ValueError(
-                        f"`{hp_name}` in eval_config must be in {self._categories[hp_name]}, but got {val}"
-                    )
-            elif val < lb - EPS or ub + EPS < val:
-                raise ValueError(f"`{hp_name}` in eval_config must be in [{lb}, {ub}], but got {val}")
+        validate_config_and_results(
+            eval_config=eval_config,
+            results=results,
+            hp_names=self._hp_names,
+            obj_names=self._obj_names,
+            hp_info=self._hp_info,
+            bounds=self._bounds,
+            categories=self._categories,
+        )
 
     def update(self, eval_config: Dict[str, Union[str, NumericType]], results: Dict[str, float]) -> None:
         """
@@ -197,20 +188,13 @@ class BaseWeightedGP(metaclass=ABCMeta):
                 The results obtained from the evaluation of eval_config.
         """
         self._validate_config_and_results(eval_config=eval_config, results=results)
-        for hp_name, val in eval_config.items():
-            new_val: NumericType
-            if self._hp_info[hp_name] == str:
-                assert isinstance(val, str)  # mypy redefinition
-                new_val = self._categories[hp_name].index(val)
-            else:
-                assert isinstance(val, (float, int))
-                new_val = val
-
-            np_type = np.int32 if isinstance(new_val, int) else np.float64
-            self._observations[hp_name] = np.append(self._observations[hp_name], new_val).astype(np_type)
-
-        for obj_name, val in results.items():
-            self._observations[obj_name] = np.append(self._observations[obj_name], val)
+        update_observations(
+            observations=self._observations,
+            eval_config=eval_config,
+            results=results,
+            hp_info=self._hp_info,
+            categories=self._categories,
+        )
 
         retrain = self._acq_fn_type == PAREGO
         self._train(train_meta_model=retrain)

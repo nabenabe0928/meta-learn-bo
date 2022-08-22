@@ -1,12 +1,17 @@
+from abc import ABCMeta, abstractmethod
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
-from meta_learn_bo.samplers.base_sampler import BaseSampler
-from meta_learn_bo.utils import HyperParameterType, NumericType, update_observations, validate_config_and_results
+from meta_learn_bo.utils import (
+    HyperParameterType,
+    NumericType,
+    validate_bounds,
+    validate_categorical_info,
+)
 
 import numpy as np
 
 
-class RandomSampler(BaseSampler):
+class BaseSampler(metaclass=ABCMeta):
     def __init__(
         self,
         bounds: Dict[str, Tuple[NumericType, NumericType]],
@@ -14,10 +19,10 @@ class RandomSampler(BaseSampler):
         minimize: Dict[str, bool],
         max_evals: int,
         obj_func: Callable,
-        categories: Optional[Dict[str, List[str]]] = None,
-        seed: Optional[int] = None,
+        categories: Optional[Dict[str, List[str]]],
+        seed: Optional[int],
     ):
-        """Random sampler.
+        """The base class samplers.
 
         Args:
             bounds (Dict[str, Tuple[NumericType, NumericType]]):
@@ -40,39 +45,54 @@ class RandomSampler(BaseSampler):
             seed (Optional[int]):
                 The random seed.
         """
-        super().__init__(
-            bounds=bounds,
-            hp_info=hp_info,
-            minimize=minimize,
-            max_evals=max_evals,
-            obj_func=obj_func,
-            categories=categories,
-            seed=seed,
+        self._bounds = bounds
+        self._hp_info = hp_info
+        self._minimize = minimize
+        self._obj_func = obj_func
+        self._obj_names = list(minimize.keys())
+        self._hp_names = list(hp_info.keys())
+        # cat_dim specifies which dimensions are categorical parameters
+        self._cat_dims = [idx for idx, hp_name in enumerate(self._hp_names) if hp_info[hp_name] == str]
+        self._max_evals = max_evals
+        self._categories: Dict[str, List[str]] = categories if categories is not None else {}
+        self._rng = np.random.RandomState(seed)
+        self._observations: Dict[str, np.ndarray] = {name: np.array([]) for name in self._hp_names + self._obj_names}
+
+        self._validate_input()
+
+    @property
+    def observations(self) -> Dict[str, np.ndarray]:
+        return {
+            hp_name: val.copy()
+            if hp_name not in self._categories
+            else np.asarray([self._categories[hp_name][idx] for idx in val])
+            for hp_name, val in self._observations.items()
+        }
+
+    def optimize(self) -> None:
+        for _ in range(self._max_evals):
+            eval_config = self.sample()
+            results = self._obj_func(eval_config.copy())
+            self.update(eval_config=eval_config, results=results)
+
+    def _validate_input(self) -> None:
+        validate_bounds(hp_names=self._hp_names, bounds=self._bounds)
+        validate_categorical_info(
+            categories=self._categories, cat_dims=self._cat_dims, bounds=self._bounds, hp_names=self._hp_names
         )
 
+    @abstractmethod
     def sample(self) -> Dict[str, Union[str, NumericType]]:
         """
-        Sample the next configuration according to the random sampler.
+        Sample the next configuration according to the child sampler.
 
         Returns:
             eval_config (Dict[str, Union[str, NumericType]]):
                 The hyperparameter configuration that were evaluated.
         """
-        eval_config: Dict[str, Union[str, NumericType]] = {}
-        for hp_name in self._hp_names:
-            lb, ub = self._bounds[hp_name]
-            type_ = self._hp_info[hp_name]
-            val = self._rng.random() * (ub - lb) + lb
-            if type_ == int:
-                eval_config[hp_name] = int(np.round(val))
-            elif type_ == float:
-                eval_config[hp_name] = val
-            else:
-                idx = int(np.round(val))
-                eval_config[hp_name] = self._categories[hp_name][idx]
+        raise NotImplementedError
 
-        return eval_config
-
+    @abstractmethod
     def update(self, eval_config: Dict[str, Union[str, NumericType]], results: Dict[str, float]) -> None:
         """
         Update the target observations, (a) Gaussian process model(s),
@@ -86,19 +106,4 @@ class RandomSampler(BaseSampler):
             results (Dict[str, float]):
                 The results obtained from the evaluation of eval_config.
         """
-        validate_config_and_results(
-            eval_config=eval_config,
-            results=results,
-            hp_names=self._hp_names,
-            obj_names=self._obj_names,
-            hp_info=self._hp_info,
-            bounds=self._bounds,
-            categories=self._categories,
-        )
-        update_observations(
-            observations=self._observations,
-            eval_config=eval_config,
-            results=results,
-            hp_info=self._hp_info,
-            categories=self._categories,
-        )
+        raise NotImplementedError

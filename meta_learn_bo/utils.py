@@ -53,7 +53,7 @@ def validate_data(data: Dict[str, np.ndarray], hp_names: List[str], obj_names: L
 
 
 def validate_categorical_info(
-    categories: Optional[Dict[str, List[str]]],
+    categories: Dict[str, List[str]],
     cat_dims: List[int],
     hp_names: List[str],
     bounds: Dict[str, Tuple[NumericType, NumericType]],
@@ -75,9 +75,60 @@ def validate_categorical_info(
             )
 
 
+def validate_config_and_results(
+    eval_config: Dict[str, Union[str, NumericType]],
+    results: Dict[str, float],
+    hp_names: List[str],
+    obj_names: List[str],
+    hp_info: Dict[str, HyperParameterType],
+    bounds: Dict[str, Tuple[NumericType, NumericType]],
+    categories: Dict[str, List[str]],
+) -> None:
+    if not all(obj_name in results for obj_name in obj_names):
+        raise KeyError(f"results must have keys {obj_names}, but got {results}")
+    if not all(hp_name in eval_config for hp_name in hp_names):
+        raise KeyError(f"eval_config must have keys {hp_names}, but got {eval_config}")
+
+    EPS = 1e-12
+    for hp_name, val in eval_config.items():
+        if not isinstance(val, hp_info[hp_name].value):
+            raise TypeError(
+                f"`{hp_name}` in eval_config must have the type {hp_info[hp_name].value}, but got {type(val)}"
+            )
+        lb, ub = bounds[hp_name]
+        if hp_info[hp_name] == str:
+            if val not in categories[hp_name]:
+                raise ValueError(f"`{hp_name}` in eval_config must be in {categories[hp_name]}, but got {val}")
+        elif val < lb - EPS or ub + EPS < val:
+            raise ValueError(f"`{hp_name}` in eval_config must be in [{lb}, {ub}], but got {val}")
+
+
 def validate_weights(weights: torch.Tensor) -> None:
     if not torch.isclose(weights.sum(), torch.tensor(1.0)):
         raise ValueError(f"The sum of the weights must be 1, but got {weights}")
+
+
+def update_observations(
+    observations: Dict[str, np.ndarray],
+    eval_config: Dict[str, Union[str, NumericType]],
+    results: Dict[str, float],
+    hp_info: Dict[str, HyperParameterType],
+    categories: Dict[str, List[str]],
+) -> None:
+    for hp_name, val in eval_config.items():
+        new_val: NumericType
+        if hp_info[hp_name] == str:
+            assert isinstance(val, str)  # mypy redefinition
+            new_val = categories[hp_name].index(val)
+        else:
+            assert isinstance(val, (float, int))
+            new_val = val
+
+        np_type = np.int32 if isinstance(new_val, int) else np.float64
+        observations[hp_name] = np.append(observations[hp_name], new_val).astype(np_type)
+
+    for obj_name, val in results.items():
+        observations[obj_name] = np.append(observations[obj_name], val)
 
 
 def normalize(
