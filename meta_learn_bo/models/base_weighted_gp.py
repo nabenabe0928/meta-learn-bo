@@ -142,6 +142,7 @@ class BaseWeightedGP(metaclass=ABCMeta):
         return f"task weights = ({ws})"
 
     def optimize_acq_fn(self) -> Dict[str, Union[str, NumericType]]:
+        # NOTE: raw_config is already denormalized, so each parameter is in the original scale.
         raw_config = optimize_acq_fn(
             acq_fn=self.acq_fn,
             bounds=self._bounds,

@@ -1,7 +1,7 @@
 from meta_learn_bo.models.rgpe import RankingWeightedGaussianProcessEnsemble
 from meta_learn_bo.models.tstr import TwoStageTransferWithRanking
 from meta_learn_bo.samplers.bo_sampler import MetaLearnGPSampler
-from meta_learn_bo.samplers.random_sampler import RandomSampler
+from meta_learn_bo.samplers.random_sampler import RandomSampler, get_random_samples
 from meta_learn_bo.utils import HyperParameterType
 
 
@@ -11,4 +11,5 @@ __all__ = [
     "RandomSampler",
     "RankingWeightedGaussianProcessEnsemble",
     "TwoStageTransferWithRanking",
+    "get_random_samples",
 ]

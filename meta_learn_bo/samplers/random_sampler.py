@@ -21,6 +21,60 @@ def convert_val(
         return choices[idx]
 
 
+def get_random_samples(
+    bounds: Dict[str, Tuple[NumericType, NumericType]],
+    hp_info: Dict[str, HyperParameterType],
+    minimize: Dict[str, bool],
+    n_samples: int,
+    obj_func: Callable,
+    verbose: bool = True,
+    categories: Optional[Dict[str, List[str]]] = None,
+    seed: Optional[int] = None,
+) -> Dict[str, np.ndarray]:
+    """
+    Get random samples given an objective function.
+
+    Args:
+        bounds (Dict[str, Tuple[NumericType, NumericType]]):
+            The lower and upper bounds for each hyperparameter.
+            If the parameter is categorical, it must be [0, the number of categories - 1].
+            Dict[hp_name, Tuple[lower bound, upper bound]].
+        hp_info (Dict[str, HyperParameterType]):
+            The type information of each hyperparameter.
+            Dict[hp_name, HyperParameterType].
+        minimize (Dict[str, bool]):
+            The direction of the optimization for each objective.
+            Dict[obj_name, whether to minimize or not].
+        obj_func (Callable):
+            The objective function that takes `eval_config` and returns `results`.
+        max_evals (int):
+            How many hyperparameter configurations to evaluate during the optimization.
+        categories (Optional[Dict[str, List[str]]]):
+            Categories for each categorical parameter.
+            Dict[categorical hp name, List[each category name]].
+        verbose (bool):
+            Whether to print the results at each iteration.
+        seed (Optional[int]):
+            The random seed.
+
+    Returns:
+        The observations of the target task sampled from the random sampling.
+        Dict[hp_name/obj_name, the array of the corresponding param].
+    """
+    sampler = RandomSampler(
+        bounds=bounds,
+        hp_info=hp_info,
+        minimize=minimize,
+        max_evals=n_samples,
+        obj_func=obj_func,
+        verbose=verbose,
+        categories=categories,
+        seed=seed,
+    )
+    sampler.optimize()
+    return sampler.observations
+
+
 class RandomSampler(BaseSampler):
     def __init__(
         self,
@@ -89,9 +143,15 @@ class RandomSampler(BaseSampler):
         eval_config: Dict[str, Union[str, NumericType]] = {}
         for hp_name in self._hp_names:
             lb, ub = self._bounds[hp_name]
-            val = self._rng.random() * (ub - lb) + lb
-            choices = self._categories.get(hp_name, None)
-            eval_config[hp_name] = convert_val(val=val, hp_type=self._hp_info[hp_name], choices=choices)
+            if self._hp_info[hp_name] == float:
+                val = self._rng.random() * (ub - lb) + lb
+            elif self._hp_info[hp_name] == int:
+                val = self._rng.randint(ub - lb + 1) + lb
+            else:
+                idx = self._rng.randint(ub + 1)
+                val = self._categories[hp_name][idx]
+
+            eval_config[hp_name] = val
 
         return eval_config
 
