@@ -291,10 +291,12 @@ def get_train_data(
     Y_train = torch.as_tensor(
         np.asarray([(1 - 2 * do_min) * observations[obj_name] for obj_name, do_min in minimize.items()])
     )
+    Y_mean = torch.mean(Y_train, dim=-1)
+    Y_std = torch.std(Y_train, dim=-1)
+    Y_train = (Y_train - Y_mean[:, None]) / Y_std[:, None]
+
     if weights is None:
-        Y_mean = torch.mean(Y_train, dim=-1)
-        Y_std = torch.std(Y_train, dim=-1)
-        return X_train, (Y_train - Y_mean[:, None]) / Y_std[:, None]
+        return X_train, Y_train
     else:  # scalarization
         Y_train = scalarize(Y_train=Y_train, weights=weights)
         Y_mean = torch.mean(Y_train)
