@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 
 from fast_pareto import nondominated_rank
 
@@ -52,6 +52,7 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
         bandwidth: float = 0.1,
         categories: Optional[Dict[str, List[str]]] = None,
         seed: Optional[int] = None,
+        tie_break_method: Literal["crowding_distance", "avg_rank"] = "avg_rank",
     ):
         """Two-stage transfer surrogate with ranking from the paper:
         "Scalable Gaussian process-based transfer surrogates for hyperparameter optimization"
@@ -103,6 +104,7 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
             max_evals=max_evals,
             categories=categories,
             seed=seed,
+            tie_break_method=tie_break_method,
         )
 
     def _compute_rank_weights(self, X_train: torch.Tensor, Y_train: torch.Tensor) -> torch.Tensor:
@@ -133,11 +135,13 @@ class TwoStageTransferWithRanking(BaseWeightedGP):
         rank_preds = np.asarray(
             [
                 # flip the sign because larger is better in base models
-                nondominated_rank(-sample(self._base_models[task_name], X_train)[0].numpy(), tie_break=True)
+                nondominated_rank(
+                    -sample(self._base_models[task_name], X_train)[0].numpy(), tie_break=self._tie_break_method
+                )
                 for task_name in self._task_names[:-1]
             ]
         )
-        rank_targets = nondominated_rank(Y_train.T.numpy(), tie_break=True)
+        rank_targets = nondominated_rank(Y_train.T.numpy(), tie_break=self._tie_break_method)
         ranking_loss = compute_ranking_loss(rank_preds=rank_preds, rank_targets=rank_targets, bandwidth=self._bandwidth)
         ts = torch.minimum(ranking_loss, torch.tensor(1.0))
 

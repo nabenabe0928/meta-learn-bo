@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Final, List, Literal, Optional, Tuple, Union
 
 from botorch.acquisition import ExpectedImprovement
 from botorch.acquisition.multi_objective import ExpectedHypervolumeImprovement
@@ -112,6 +112,7 @@ class BaseWeightedGP(metaclass=ABCMeta):
         max_evals: int,
         categories: Optional[Dict[str, List[str]]],
         seed: Optional[int],
+        tie_break_method: Literal["crowding_distance", "avg_rank"],
     ):
         """The base class for the weighted combination of
         Gaussian process based acquisition functions.
@@ -157,6 +158,7 @@ class BaseWeightedGP(metaclass=ABCMeta):
         self._n_tasks = len(self._task_names)
         self._bounds = modify_bounds_for_integers(bounds=bounds, hp_info=hp_info)
         self._max_evals = max_evals
+        self._tie_break_method: Final = tie_break_method
         self._hp_info = hp_info
         self._hp_names = list(hp_info.keys())
         # cat_dim specifies which dimensions are categorical parameters

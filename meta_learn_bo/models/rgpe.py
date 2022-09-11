@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 
 from fast_pareto import nondominated_rank
 
@@ -54,7 +54,12 @@ def drop_ranking_loss(
 
 
 def leave_one_out_ranks(
-    X: torch.Tensor, Y: torch.Tensor, cat_dims: List[int], scalarize: bool, state_dict: OrderedDict
+    X: torch.Tensor,
+    Y: torch.Tensor,
+    cat_dims: List[int],
+    scalarize: bool,
+    state_dict: OrderedDict,
+    tie_break_method: Literal["crowding_distance", "avg_rank"],
 ) -> torch.Tensor:
     """
     Compute the ranking of each x in X using leave-one-out cross validation.
@@ -101,7 +106,7 @@ def leave_one_out_ranks(
         # predict returns the array with the shape of (batch, n_evals, n_objectives)
         loo_preds[idx] = sample(loo_model, x_test)[0][0].numpy()
 
-    return torch.tensor(nondominated_rank(costs=loo_preds, tie_break=True))
+    return torch.tensor(nondominated_rank(costs=loo_preds, tie_break=tie_break_method))
 
 
 def compute_rank_weights(ranking_loss: torch.Tensor) -> torch.Tensor:
@@ -185,6 +190,7 @@ class RankingWeightedGaussianProcessEnsemble(BaseWeightedGP):
         max_evals: int = 100,
         categories: Optional[Dict[str, List[str]]] = None,
         seed: Optional[int] = None,
+        tie_break_method: Literal["crowding_distance", "avg_rank"] = "avg_rank",
     ):
         """The default setting of the paper:
         "Practical transfer learning for Bayesian optimization".
@@ -243,6 +249,7 @@ class RankingWeightedGaussianProcessEnsemble(BaseWeightedGP):
             max_evals=max_evals,
             categories=categories,
             seed=seed,
+            tie_break_method=tie_break_method,
         )
 
     def _bootstrap(self, ranks: torch.Tensor, X_train: torch.Tensor, Y_train: torch.Tensor) -> torch.Tensor:
@@ -274,9 +281,10 @@ class RankingWeightedGaussianProcessEnsemble(BaseWeightedGP):
             cat_dims=self._cat_dims,
             scalarize=self._acq_fn_type == PAREGO,
             state_dict=target_state_dict,
+            tie_break_method=self._tie_break_method,
         )
         rank_preds = torch.vstack([ranks, loo_ranks])
-        rank_targets = nondominated_rank(Y_train.T.numpy(), tie_break=True)
+        rank_targets = nondominated_rank(Y_train.T.numpy(), tie_break=self._tie_break_method)
         (n_tasks, n_evals) = ranks.shape
         bs_indices = self._rng.choice(n_evals, size=(self._n_bootstraps, n_evals), replace=True)
 
@@ -310,7 +318,7 @@ class RankingWeightedGaussianProcessEnsemble(BaseWeightedGP):
         for idx, task_name in enumerate(self._task_names[:-1]):
             model = self._base_models[task_name]
             # flip the sign because larger is better in base models
-            rank = nondominated_rank(-sample(model, X_train)[0].numpy(), tie_break=True)
+            rank = nondominated_rank(-sample(model, X_train)[0].numpy(), tie_break=self._tie_break_method)
             ranks[idx] = torch.as_tensor(rank)
 
         ranking_loss = self._bootstrap(ranks=ranks, X_train=X_train, Y_train=Y_train)
