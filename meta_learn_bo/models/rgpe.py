@@ -190,7 +190,7 @@ class RankingWeightedGaussianProcessEnsemble(BaseWeightedGP):
         max_evals: int = 100,
         categories: Optional[Dict[str, List[str]]] = None,
         seed: Optional[int] = None,
-        tie_break_method: Literal["crowding_distance", "avg_rank"] = "avg_rank",
+        tie_break_method: Literal["crowding_distance", "avg_rank"] = "crowding_distance",
     ):
         """The default setting of the paper:
         "Practical transfer learning for Bayesian optimization".
